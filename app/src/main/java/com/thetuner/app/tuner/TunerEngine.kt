@@ -53,9 +53,12 @@ class TunerEngine @Inject constructor(
 
         listeningJob = newScope.launch {
             _state.value = TunerState(isListening = true, isSilent = true)
-
-            audioSource.frames().collect { frame ->
-                processFrame(frame)
+            try {
+                audioSource.frames().collect { frame ->
+                    processFrame(frame)
+                }
+            } catch (e: Exception) {
+                _state.value = TunerState(isListening = false, isSilent = true)
             }
         }
     }

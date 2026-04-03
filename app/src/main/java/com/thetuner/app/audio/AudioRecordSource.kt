@@ -15,7 +15,8 @@ class AudioRecordSource @Inject constructor(
     @ApplicationContext private val context: Context
 ) : AudioSource {
 
-    private val buffer = FloatArray(AudioConfig.ANALYSIS_BUFFER_SIZE)
+    private val shortBuffer = ShortArray(AudioConfig.ANALYSIS_BUFFER_SIZE)
+    private val floatBuffer = FloatArray(AudioConfig.ANALYSIS_BUFFER_SIZE)
 
     override fun frames(): Flow<FloatArray> = callbackFlow {
         val minBufferSize = AudioRecord.getMinBufferSize(
@@ -23,24 +24,36 @@ class AudioRecordSource @Inject constructor(
             AudioConfig.CHANNEL_CONFIG,
             AudioConfig.AUDIO_FORMAT
         )
-        val bufferSize = maxOf(minBufferSize * 2, AudioConfig.ANALYSIS_BUFFER_SIZE * 4)
+        if (minBufferSize <= 0) {
+            close(IllegalStateException("AudioRecord params unsupported (minBufferSize=$minBufferSize)"))
+            return@callbackFlow
+        }
+        val bufferSize = maxOf(minBufferSize * 2, AudioConfig.ANALYSIS_BUFFER_SIZE * 2)
 
         val record = AudioRecord(
             AudioConfig.getPreferredAudioSource(context),
             AudioConfig.SAMPLE_RATE,
             AudioConfig.CHANNEL_CONFIG,
             AudioConfig.AUDIO_FORMAT,
-            bufferSize * Float.SIZE_BYTES
+            bufferSize * Short.SIZE_BYTES
         )
+
+        if (record.state != AudioRecord.STATE_INITIALIZED) {
+            record.release()
+            close(IllegalStateException("AudioRecord failed to initialize"))
+            return@callbackFlow
+        }
 
         record.startRecording()
         try {
             while (isActive) {
-                val readCount = record.read(
-                    buffer, 0, buffer.size, AudioRecord.READ_BLOCKING
-                )
+                val readCount = record.read(shortBuffer, 0, shortBuffer.size)
                 if (readCount > 0) {
-                    send(buffer.copyOf(readCount))
+                    // Normalize PCM_16BIT shorts to [-1.0, 1.0] floats for the pitch detector
+                    for (i in 0 until readCount) {
+                        floatBuffer[i] = shortBuffer[i] / 32768f
+                    }
+                    send(floatBuffer.copyOf(readCount))
                 }
             }
         } finally {

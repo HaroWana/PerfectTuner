@@ -8,7 +8,7 @@ import android.media.MediaRecorder
 object AudioConfig {
     const val SAMPLE_RATE = 44100
     const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
-    const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_FLOAT
+    const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
     const val ANALYSIS_BUFFER_SIZE = 4096 // ~93ms at 44100 Hz, ~3.8 cycles of E2 (82.4 Hz)
 
     fun getPreferredAudioSource(context: Context): Int {
