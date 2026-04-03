@@ -4,8 +4,10 @@ import androidx.compose.animation.core.withInfiniteAnimationFrameMillis
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -34,6 +36,9 @@ fun StrobeRing(
     modifier: Modifier = Modifier
 ) {
     val phase = remember { mutableFloatStateOf(0f) }
+    // rememberUpdatedState so the LaunchedEffect always reads the latest centsOffset
+    // without restarting the coroutine on every recomposition
+    val currentCentsOffset by rememberUpdatedState(centsOffset)
 
     // Frame-driven phase accumulator
     LaunchedEffect(Unit) {
@@ -44,8 +49,8 @@ fun StrobeRing(
                 prevFrameTime = frameTimeMs
 
                 // Only rotate when outside tolerance
-                if (abs(centsOffset) > TOLERANCE_CENTS) {
-                    phase.floatValue += -centsOffset * SPEED_SCALE * deltaSeconds
+                if (abs(currentCentsOffset) > TOLERANCE_CENTS) {
+                    phase.floatValue += -currentCentsOffset * SPEED_SCALE * deltaSeconds
                 }
             }
         }

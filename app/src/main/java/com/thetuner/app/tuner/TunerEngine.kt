@@ -46,7 +46,7 @@ class TunerEngine @Inject constructor(
     private companion object {
         const val SILENCE_DBFS_THRESHOLD = -50f
         const val CONFIDENCE_THRESHOLD = 0.80f
-        const val SILENCE_FRAME_COUNT = 2 // ~186ms at 4096/44100
+        const val SILENCE_FRAME_COUNT = 10 // ~930ms at 4096/44100
         const val IN_TUNE_TOLERANCE = 5.0f
         const val EMA_ALPHA = 0.2f
     }
