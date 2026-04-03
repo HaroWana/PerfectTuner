@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.abs
 import kotlin.math.ln
 import kotlin.math.sqrt
 
@@ -35,11 +36,19 @@ class TunerEngine @Inject constructor(
     // Silence counter
     private var silenceCounter = 0
 
+    // String detection
+    private val stringDetector = StringDetector()
+
+    // EMA smoothing for cents offset
+    private var smoothedCents = 0f
+
     // Silence threshold: -50 dBFS
     private companion object {
         const val SILENCE_DBFS_THRESHOLD = -50f
         const val CONFIDENCE_THRESHOLD = 0.80f
         const val SILENCE_FRAME_COUNT = 2 // ~186ms at 4096/44100
+        const val IN_TUNE_TOLERANCE = 5.0f
+        const val EMA_ALPHA = 0.2f
     }
 
     fun startListening() {
@@ -47,6 +56,8 @@ class TunerEngine @Inject constructor(
 
         medianCount = 0
         silenceCounter = 0
+        smoothedCents = 0f
+        stringDetector.reset()
 
         val newScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = newScope
@@ -70,6 +81,8 @@ class TunerEngine @Inject constructor(
         scope = null
         medianCount = 0
         silenceCounter = 0
+        smoothedCents = 0f
+        stringDetector.reset()
         _state.value = TunerState(isListening = false, isSilent = true)
     }
 
@@ -103,12 +116,25 @@ class TunerEngine @Inject constructor(
         // Step 4: Map to note
         val note = NoteMapper.frequencyToNote(filteredFreq)
 
+        // Step 5: Compute cents offset with EMA smoothing
+        val rawCents = NoteMapper.centsBetween(filteredFreq, note.frequency)
+        smoothedCents = EMA_ALPHA * rawCents + (1 - EMA_ALPHA) * smoothedCents
+
+        // Step 6: Detect string with hysteresis
+        val detectedString = stringDetector.detect(filteredFreq, STANDARD_TUNING.frequencies())
+
+        // Step 7: Determine in-tune state
+        val isInTune = abs(smoothedCents) <= IN_TUNE_TOLERANCE
+
         _state.value = TunerState(
             noteName = note.name,
             octave = note.octave,
             frequencyHz = result.frequencyHz, // Raw value for display
             isListening = true,
-            isSilent = false
+            isSilent = false,
+            centsOffset = smoothedCents,
+            detectedStringIndex = detectedString,
+            isInTune = isInTune
         )
     }
 
@@ -127,6 +153,8 @@ class TunerEngine @Inject constructor(
             isSilent = true
         )
         medianCount = 0
+        smoothedCents = 0f
+        stringDetector.reset()
     }
 
     private fun addToMedianFilter(frequency: Float): Float {
