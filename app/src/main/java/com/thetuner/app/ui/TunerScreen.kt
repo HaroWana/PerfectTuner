@@ -23,16 +23,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.thetuner.app.tuner.TuningLibrary
 import com.thetuner.app.ui.theme.StringColors
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TunerScreen(viewModel: TunerViewModel = hiltViewModel()) {
+fun TunerScreen(
+    viewModel: TunerViewModel,
+    onNavigateToSettings: () -> Unit
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val activeTuningId by viewModel.activeTuningId.collectAsStateWithLifecycle()
 
     LifecycleResumeEffect(Unit) {
         viewModel.startListening()
@@ -41,7 +45,6 @@ fun TunerScreen(viewModel: TunerViewModel = hiltViewModel()) {
         }
     }
 
-    // Extract state for readability
     val centsOffset = state.centsOffset
     val detectedStringIndex = state.detectedStringIndex
     val isInTune = state.isInTune
@@ -49,7 +52,6 @@ fun TunerScreen(viewModel: TunerViewModel = hiltViewModel()) {
     val noteName = state.noteName
     val octave = state.octave
 
-    // Color logic with animated transitions (200ms tween)
     val targetRingColor = when {
         detectedStringIndex != null && isInTune -> StringColors.inTuneGreen
         detectedStringIndex != null -> StringColors.palette[detectedStringIndex]
@@ -61,7 +63,6 @@ fun TunerScreen(viewModel: TunerViewModel = hiltViewModel()) {
         label = "ringColor"
     )
 
-    // Animated string color for the detected string
     val targetDetectedStringColor = when {
         detectedStringIndex != null && isInTune -> StringColors.inTuneGreen
         detectedStringIndex != null -> StringColors.palette[detectedStringIndex]
@@ -73,23 +74,33 @@ fun TunerScreen(viewModel: TunerViewModel = hiltViewModel()) {
         label = "detectedStringColor"
     )
 
-    // Build string colors list with animated detected string color
     val stringColors = remember(detectedStringIndex, detectedStringColor) {
         StringColors.palette.mapIndexed { index, color ->
             if (index == detectedStringIndex) detectedStringColor else color
         }
     }
 
-    // Bottom sheet state
+    // FAB label: reflect active tuning name, truncated for display
+    val activeTuning = TuningLibrary.findById(activeTuningId)
+    val fabLabel = when (activeTuning.id) {
+        "chromatic" -> "Chr"
+        "standard" -> "Std"
+        "eb_standard" -> "Eb"
+        "d_standard" -> "D Std"
+        "drop_d" -> "Drop D"
+        "drop_c" -> "Drop C"
+        else -> activeTuning.name.take(6)
+    }
+
     var showBottomSheet by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState()
+    // skipPartiallyExpanded = true: prevents sheet dismissal conflict when scrolling LazyColumn
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF121212))
     ) {
-        // Layer 1: Perspective guitar strings (behind everything)
         StringsOverlay(
             detectedStringIndex = detectedStringIndex,
             stringColors = stringColors,
@@ -98,7 +109,6 @@ fun TunerScreen(viewModel: TunerViewModel = hiltViewModel()) {
             modifier = Modifier.fillMaxSize()
         )
 
-        // Layer 2: Strobe ring (centered)
         StrobeRing(
             centsOffset = if (isSilent) 0f else centsOffset,
             ringColor = ringColor,
@@ -107,27 +117,17 @@ fun TunerScreen(viewModel: TunerViewModel = hiltViewModel()) {
                 .size(320.dp)
         )
 
-        // Layer 3: Note and cent readout (centered inside ring)
         Column(
             modifier = Modifier.align(Alignment.Center),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Note name + octave
             Text(
-                text = if (isSilent || noteName == null) {
-                    "--"
-                } else {
-                    "$noteName${octave ?: ""}"
-                },
+                text = if (isSilent || noteName == null) "--" else "$noteName${octave ?: ""}",
                 style = MaterialTheme.typography.displayLarge,
                 color = Color.White
             )
-
-            // Cent offset
             Text(
-                text = if (isSilent || noteName == null) {
-                    "--"
-                } else {
+                text = if (isSilent || noteName == null) "--" else {
                     val rounded = centsOffset.roundToInt()
                     val prefix = if (rounded > 0) "+" else ""
                     "${prefix}${rounded}c"
@@ -137,7 +137,6 @@ fun TunerScreen(viewModel: TunerViewModel = hiltViewModel()) {
             )
         }
 
-        // Layer 4: FAB (bottom-end)
         FloatingActionButton(
             onClick = { showBottomSheet = true },
             modifier = Modifier
@@ -146,24 +145,28 @@ fun TunerScreen(viewModel: TunerViewModel = hiltViewModel()) {
             containerColor = Color(0xFF2C2C2C)
         ) {
             Text(
-                text = "Std",
+                text = fabLabel,
                 color = Color.White.copy(alpha = 0.8f),
                 style = MaterialTheme.typography.labelMedium
             )
         }
 
-        // Bottom sheet for tuning selection (placeholder)
         if (showBottomSheet) {
             ModalBottomSheet(
                 onDismissRequest = { showBottomSheet = false },
                 sheetState = sheetState,
                 containerColor = Color(0xFF1E1E1E)
             ) {
-                Text(
-                    text = "Standard",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
-                    modifier = Modifier.padding(24.dp)
+                TuningPickerSheet(
+                    activeTuningId = activeTuningId,
+                    onTuningSelected = { id ->
+                        viewModel.selectTuning(id)
+                        showBottomSheet = false
+                    },
+                    onNavigateToSettings = {
+                        showBottomSheet = false
+                        onNavigateToSettings()
+                    }
                 )
             }
         }
