@@ -8,5 +8,6 @@ data class TunerState(
     val isSilent: Boolean = true,
     val centsOffset: Float = 0f,
     val detectedStringIndex: Int? = null,
-    val isInTune: Boolean = false
+    val isInTune: Boolean = false,
+    val activeTuningId: String = "standard"
 )
