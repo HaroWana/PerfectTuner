@@ -12,7 +12,8 @@ data class GuitarString(
 data class GuitarTuning(
     val id: String,
     val name: String,
-    val strings: List<GuitarString>
+    val strings: List<GuitarString>,
+    val description: String = ""
 ) {
     fun frequencies(a4Reference: Float = 440f): List<Float> {
         return strings.map { string ->
