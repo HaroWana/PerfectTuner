@@ -64,6 +64,9 @@ dependencies {
     // Permissions
     implementation("com.google.accompanist:accompanist-permissions:0.37.0")
 
+    // Billing
+    implementation("com.android.billingclient:billing-ktx:8.0.0")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
