@@ -1,6 +1,7 @@
 package com.thetuner.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,6 +31,7 @@ fun SettingsScreen(
     onA4Increment: () -> Unit,
     onA4Decrement: () -> Unit,
     onToleranceMarkersChanged: (Boolean) -> Unit,
+    onRestorePurchases: () -> Unit,
     onBack: () -> Unit
 ) {
     Column(
@@ -130,6 +132,30 @@ fun SettingsScreen(
                 onCheckedChange = onToleranceMarkersChanged,
                 modifier = Modifier.padding(start = 16.dp)
             )
+        }
+
+        HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+
+        // Restore Purchases row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onRestorePurchases() }
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Restore Purchases",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White
+                )
+                Text(
+                    text = "Re-sync your purchase if it's not showing",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.5f)
+                )
+            }
         }
     }
 }
