@@ -33,7 +33,9 @@ import kotlin.math.roundToInt
 @Composable
 fun TunerScreen(
     viewModel: TunerViewModel,
-    onNavigateToSettings: () -> Unit
+    hasPurchased: Boolean,
+    onNavigateToSettings: () -> Unit,
+    onLockedTuningTap: (String) -> Unit
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val activeTuningId by viewModel.activeTuningId.collectAsStateWithLifecycle()
@@ -159,9 +161,14 @@ fun TunerScreen(
             ) {
                 TuningPickerSheet(
                     activeTuningId = activeTuningId,
+                    hasPurchased = hasPurchased,
                     onTuningSelected = { id ->
                         viewModel.selectTuning(id)
                         showBottomSheet = false
+                    },
+                    onLockedTuningTap = { tuningId ->
+                        showBottomSheet = false
+                        onLockedTuningTap(tuningId)
                     },
                     onNavigateToSettings = {
                         showBottomSheet = false

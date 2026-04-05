@@ -16,11 +16,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -34,9 +40,14 @@ import com.thetuner.app.tuner.TuningLibrary
 @Composable
 fun TuningPickerSheet(
     activeTuningId: String,
+    hasPurchased: Boolean,
     onTuningSelected: (String) -> Unit,
+    onLockedTuningTap: (tuningId: String) -> Unit,
     onNavigateToSettings: () -> Unit
 ) {
+    var showPurchaseDialog by remember { mutableStateOf(false) }
+    var pendingTuningId by remember { mutableStateOf<String?>(null) }
+
     LazyColumn {
         // Sheet header row: title + gear icon
         item {
@@ -84,7 +95,12 @@ fun TuningPickerSheet(
                     tuning = tuning,
                     isActive = tuning.id == activeTuningId,
                     isFree = TuningLibrary.isFree(tuning.id),
-                    onSelect = { onTuningSelected(tuning.id) }
+                    hasPurchased = hasPurchased,
+                    onSelect = { onTuningSelected(tuning.id) },
+                    onLockedTap = {
+                        pendingTuningId = tuning.id
+                        showPurchaseDialog = true
+                    }
                 )
             }
         }
@@ -94,6 +110,20 @@ fun TuningPickerSheet(
             Box(modifier = Modifier.padding(bottom = 24.dp))
         }
     }
+
+    if (showPurchaseDialog) {
+        PurchaseConfirmationDialog(
+            onConfirm = {
+                showPurchaseDialog = false
+                pendingTuningId?.let { onLockedTuningTap(it) }
+                pendingTuningId = null
+            },
+            onDismiss = {
+                showPurchaseDialog = false
+                pendingTuningId = null
+            }
+        )
+    }
 }
 
 @Composable
@@ -101,16 +131,19 @@ fun TuningRow(
     tuning: GuitarTuning,
     isActive: Boolean,
     isFree: Boolean,
-    onSelect: () -> Unit
+    hasPurchased: Boolean,
+    onSelect: () -> Unit,
+    onLockedTap: () -> Unit
 ) {
     val isChromatic = tuning.id == "chromatic"
-    val rowAlpha = if (isFree || isChromatic) 1f else 0.45f
+    val isUnlocked = isFree || isChromatic || hasPurchased
+    val rowAlpha = if (isUnlocked) 1f else 0.45f
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(if (isActive) Color(0xFF2A2A2A) else Color.Transparent)
-            .clickable(enabled = isFree || isChromatic) { if (isFree || isChromatic) onSelect() }
+            .clickable(enabled = true) { if (isUnlocked) onSelect() else onLockedTap() }
             .padding(horizontal = 20.dp, vertical = 10.dp)
             .alpha(rowAlpha),
         verticalAlignment = Alignment.CenterVertically,
@@ -141,7 +174,7 @@ fun TuningRow(
             )
         }
 
-        // Right indicator: checkmark for active, lock for locked, nothing for free+inactive
+        // Right indicator: checkmark for active, lock for locked (when not purchased), nothing otherwise
         Box(modifier = Modifier.padding(start = 8.dp).size(20.dp), contentAlignment = Alignment.Center) {
             when {
                 isActive -> Icon(
@@ -150,7 +183,7 @@ fun TuningRow(
                     tint = Color.White,
                     modifier = Modifier.size(18.dp)
                 )
-                !isFree && !isChromatic -> Icon(
+                !isFree && !isChromatic && !hasPurchased -> Icon(
                     imageVector = Icons.Default.Lock,
                     contentDescription = "Locked",
                     tint = Color.White.copy(alpha = 0.6f),
@@ -159,6 +192,41 @@ fun TuningRow(
             }
         }
     }
+}
+
+@Composable
+fun PurchaseConfirmationDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Unlock Full Library",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White
+            )
+        },
+        text = {
+            Text(
+                text = "35+ alternate and open tunings. One-time purchase, never expires.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.8f)
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Buy", color = MaterialTheme.colorScheme.primary)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Not now", color = Color.White.copy(alpha = 0.6f))
+            }
+        },
+        containerColor = Color(0xFF2A2A2A)
+    )
 }
 
 @Composable
