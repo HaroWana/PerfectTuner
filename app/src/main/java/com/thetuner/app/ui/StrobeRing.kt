@@ -82,6 +82,13 @@ fun StrobeRing(
         } else {
             val samples = waveformSamples
             if (samples != null && samples.isNotEmpty()) {
+                // Normalize samples to their frame peak so the waveform always uses
+                // full amplitude regardless of microphone level. PCM16 / 32768f produces
+                // values in 0.001–0.1 range for typical guitar playing — without
+                // normalization the displacement is sub-pixel and looks like a plain circle.
+                val peak = samples.maxOf { kotlin.math.abs(it) }
+                val scale = if (peak > 0.001f) 1f / peak else 0f
+
                 // Render real audio waveform around the ring.
                 // The phase offset controls which sample maps to angle 0, driving rotation.
                 val path = Path()
@@ -91,7 +98,7 @@ fun StrobeRing(
                 for (i in 0 until SAMPLE_COUNT) {
                     val theta = (i.toDouble() / (SAMPLE_COUNT - 1)) * 2.0 * Math.PI
                     val sampleIdx = (startOffset + i * samples.size / SAMPLE_COUNT) % samples.size
-                    val displacement = samples[sampleIdx] * waveAmplitude
+                    val displacement = samples[sampleIdx] * scale * waveAmplitude
                     val r = (ringRadius + displacement).toFloat()
                     val x = (center.x + r * kotlin.math.cos(theta)).toFloat()
                     val y = (center.y + r * kotlin.math.sin(theta)).toFloat()
