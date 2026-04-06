@@ -4,7 +4,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.unit.Dp
 
 /**
  * Perspective guitar string lines converging to a vanishing point.
@@ -12,6 +17,9 @@ import androidx.compose.ui.graphics.Color
  * Draws 6 lines representing guitar strings from a near plane (spread apart)
  * to a far plane (converging). The detected string is illuminated in its
  * assigned color (or green when in tune), while undetected strings are dim.
+ *
+ * String lines are clipped to the ring outer edge so they appear to feed into
+ * the ring rather than exiting the other side.
  */
 @Composable
 fun StringsOverlay(
@@ -19,6 +27,7 @@ fun StringsOverlay(
     stringColors: List<Color>,
     isInTune: Boolean,
     inTuneColor: Color,
+    ringRadiusDp: Dp,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
@@ -33,26 +42,35 @@ fun StringsOverlay(
         val nearSpread = size.width * 0.3f
         val farSpread = size.width * 0.03f
 
-        for (i in 0 until STRING_COUNT) {
-            // Normalize position: -1 to +1
-            val t = (i - 2.5f) / 2.5f
-            val nearX = centerX + t * nearSpread
-            val farX = centerX + t * farSpread
+        // Clip to ring outer edge — DrawScope implements Density so toPx() works directly
+        val ringOuterRadiusPx = ringRadiusDp.toPx()
+        val clipCenter = Offset(size.width / 2f, size.height / 2f)
+        val clipCircle = Path().apply {
+            addOval(Rect(center = clipCenter, radius = ringOuterRadiusPx))
+        }
 
-            val isDetected = detectedStringIndex == i
-            val color = when {
-                isDetected && isInTune -> inTuneColor
-                isDetected -> stringColors.getOrElse(i) { Color.White.copy(alpha = 0.15f) }
-                else -> Color.White.copy(alpha = 0.15f)
+        clipPath(clipCircle, clipOp = ClipOp.Intersect) {
+            for (i in 0 until STRING_COUNT) {
+                // Normalize position: -1 to +1
+                val t = (i - 2.5f) / 2.5f
+                val nearX = centerX + t * nearSpread
+                val farX = centerX + t * farSpread
+
+                val isDetected = detectedStringIndex == i
+                val color = when {
+                    isDetected && isInTune -> inTuneColor
+                    isDetected -> stringColors.getOrElse(i) { Color.White.copy(alpha = 0.15f) }
+                    else -> Color.White.copy(alpha = 0.15f)
+                }
+                val strokeWidth = if (isDetected) 3f else 1.5f
+
+                drawLine(
+                    color = color,
+                    start = Offset(nearX, nearY),
+                    end = Offset(farX, farY),
+                    strokeWidth = strokeWidth
+                )
             }
-            val strokeWidth = if (isDetected) 3f else 1.5f
-
-            drawLine(
-                color = color,
-                start = Offset(nearX, nearY),
-                end = Offset(farX, farY),
-                strokeWidth = strokeWidth
-            )
         }
     }
 }
