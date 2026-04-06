@@ -145,7 +145,16 @@ class TunerEngine @Inject constructor(
         }
         val detectedString = stringDetector.detect(filteredFreq, detectionFrequencies)
 
-        val isInTune = abs(smoothedCents) <= IN_TUNE_TOLERANCE
+        // isInTune must be relative to the target string's frequency, not the nearest
+        // chromatic note. Using chromatic cents caused green to fire on any semitone
+        // boundary, regardless of whether it matched the tuning target.
+        // In chromatic mode: no specific target, so fall back to chromatic nearest note.
+        val isInTune = if (!isChromatic && detectedString != null) {
+            val targetFreq = detectionFrequencies[detectedString]
+            abs(NoteMapper.centsBetween(filteredFreq, targetFreq)) <= IN_TUNE_TOLERANCE
+        } else {
+            abs(smoothedCents) <= IN_TUNE_TOLERANCE
+        }
 
         _state.value = TunerState(
             noteName = note.name,
