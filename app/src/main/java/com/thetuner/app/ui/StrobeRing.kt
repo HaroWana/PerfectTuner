@@ -31,10 +31,17 @@ const val RING_RADIUS_DP = 136f
  * - Inner boundary: perfect circle (flat, no waveform)
  * - Outer boundary: follows the audio waveform, bulging outward
  *
- * The phase offset shifts which sample maps to angle 0, producing visible rotation.
- * Speed uses exponential decay and is EMA-smoothed to prevent jitter.
- * Waveform samples are blended frame-by-frame to smooth shape transitions.
- * Stops completely when within +/-5 cents. Dim static circle when silent.
+ * Smoothness:
+ * - Rotation speed is EMA-smoothed to prevent jitter from noisy centsOffset.
+ * - Waveform samples are blended frame-by-frame toward the latest audio frame.
+ * - Outer edge uses a 5-point moving average over adjacent samples to reduce
+ *   high-frequency noise (jaggedness) while preserving the overall waveform shape.
+ *
+ * Frequency transitions:
+ * - When detectedStringIndex changes, the work buffer is reset immediately to the
+ *   incoming samples — no blend between incompatible waveform patterns from different
+ *   frequencies. StringDetector's hysteresis ensures this only fires on genuine switches.
+ * - Transitioning from silence to active also resets the buffer.
  *
  * Direction convention:
  * - Flat pitch (negative cents) -> clockwise rotation
@@ -46,11 +53,14 @@ fun StrobeRing(
     ringColor: Color,
     isSilent: Boolean,
     waveformSamples: FloatArray?,
+    detectedStringIndex: Int?,
     modifier: Modifier = Modifier
 ) {
     val phase = remember { mutableFloatStateOf(0f) }
     val currentCentsOffset by rememberUpdatedState(centsOffset)
     val currentWaveform by rememberUpdatedState(waveformSamples)
+    val currentStringIndex by rememberUpdatedState(detectedStringIndex)
+    val currentIsSilent by rememberUpdatedState(isSilent)
 
     // In-place working buffer — blended toward latest audio frame each display frame.
     // No Compose state: Canvas reads this on every draw since phase changes trigger redraws.
@@ -58,7 +68,9 @@ fun StrobeRing(
 
     LaunchedEffect(Unit) {
         var prevFrameTime = 0L
-        var currentSpeed = 0f  // signed degrees/second, EMA-smoothed
+        var currentSpeed = 0f    // signed degrees/second, EMA-smoothed
+        var prevStringIndex: Int? = -999  // sentinel: force reset on first active frame
+        var prevWasSilent = true
 
         while (isActive) {
             withInfiniteAnimationFrameMillis { frameTimeMs ->
@@ -66,7 +78,7 @@ fun StrobeRing(
                     else (frameTimeMs - prevFrameTime) / 1000f
                 prevFrameTime = frameTimeMs
 
-                // EMA-smooth rotation speed to prevent noisy centsOffset causing lurching
+                // --- Rotation speed (EMA-smoothed) ---
                 val absCents = abs(currentCentsOffset)
                 val targetSpeed = if (absCents > TOLERANCE_CENTS) {
                     -sign(currentCentsOffset) * SPEED_SCALE * (exp(EXPO_K * absCents) - 1f)
@@ -78,21 +90,32 @@ fun StrobeRing(
                     phase.floatValue = (phase.floatValue + currentSpeed * deltaSeconds) % 360f
                 }
 
-                // Blend working sample buffer toward latest audio frame — avoids shape jumps
-                // at audio frame rate (~40 Hz) by spreading the transition over display frames
+                // --- Waveform buffer management ---
+                val silent = currentIsSilent
+                val stringIdx = currentStringIndex
                 val target = currentWaveform
-                if (target != null && target.isNotEmpty()) {
+
+                if (silent) {
+                    // Going silent: clear buffer so next active frame starts fresh
+                    workSamplesHolder[0] = null
+                } else if (target != null && target.isNotEmpty()) {
                     val work = workSamplesHolder[0]
-                    if (work == null || work.size != target.size) {
+                    val frequencyChanged = prevWasSilent || stringIdx != prevStringIndex
+
+                    if (work == null || work.size != target.size || frequencyChanged) {
+                        // New session or string switch: copy immediately — never blend
+                        // between waveforms from different frequencies (produces garbage)
                         workSamplesHolder[0] = target.copyOf()
                     } else {
+                        // Same frequency: smooth blend toward the latest audio frame
                         for (i in work.indices) {
                             work[i] += (target[i] - work[i]) * WAVEFORM_BLEND_ALPHA
                         }
                     }
-                } else {
-                    workSamplesHolder[0] = null
                 }
+
+                prevStringIndex = stringIdx
+                prevWasSilent = silent
             }
         }
     }
@@ -100,11 +123,10 @@ fun StrobeRing(
     Canvas(modifier = modifier) {
         val ringDiameter = size.minDimension * 0.85f
         val ringRadius = ringDiameter / 2f
-        val baseThickness = ringDiameter * 0.06f   // minimum ring width (inner to outer base)
-        val waveAmplitude = baseThickness * 1.2f    // max outer-edge excursion beyond base
+        val baseThickness = ringDiameter * 0.06f
+        val waveAmplitude = baseThickness * 1.2f
 
         if (isSilent) {
-            // Dim neutral circle — signals "listening" state
             drawCircle(
                 color = ringColor.copy(alpha = 0.25f),
                 radius = ringRadius + baseThickness / 2f,
@@ -114,29 +136,34 @@ fun StrobeRing(
         } else {
             val samples = workSamplesHolder[0]
             if (samples != null && samples.isNotEmpty()) {
-                // Peak-normalize so the waveform always uses the full amplitude range
                 val peak = samples.maxOf { abs(it) }
                 val scale = if (peak > 0.001f) 1f / peak else 0f
+                val n = samples.size
 
-                // Which sample aligns with angle 0 — advancing this is the rotation mechanism
-                val startOffset = ((phase.floatValue / 360f) * samples.size).toInt().let {
-                    ((it % samples.size) + samples.size) % samples.size
+                val startOffset = ((phase.floatValue / 360f) * n).toInt().let {
+                    ((it % n) + n) % n
                 }
 
-                // Filled annular path:
-                //   Inner boundary — perfect circle at ringRadius (inner edge, flat)
-                //   Outer boundary — waveform-displaced, always >= ringRadius + baseThickness
-                //
-                // Sample mapped to [0, waveAmplitude] via (s * scale + 1) / 2 so the outer
-                // edge varies smoothly between baseThickness and baseThickness + waveAmplitude
-                // while preserving the true waveform shape (not rectified).
+                // Filled annular path: flat inner circle, waveform outer edge.
+                // Outer edge uses a 5-point moving average over adjacent samples to
+                // smooth out high-frequency noise without losing the waveform shape.
+                // Sample mapped [−1,1] → [0,1] so the outer edge always stays outside
+                // the inner circle and the full waveform asymmetry is preserved.
                 val path = Path().apply { fillType = PathFillType.EvenOdd }
 
-                // Outer waveform edge
                 for (i in 0 until SAMPLE_COUNT) {
                     val theta = (i.toDouble() / (SAMPLE_COUNT - 1)) * 2.0 * Math.PI
-                    val sampleIdx = (startOffset + i * samples.size / SAMPLE_COUNT) % samples.size
-                    val normalised = (samples[sampleIdx] * scale + 1f) * 0.5f  // [0, 1]
+                    val base = startOffset + i * n / SAMPLE_COUNT
+
+                    // 5-point box filter over adjacent mapped sample positions
+                    val s0 = samples[((base - 2) % n + n) % n]
+                    val s1 = samples[((base - 1) % n + n) % n]
+                    val s2 = samples[base % n]
+                    val s3 = samples[(base + 1) % n]
+                    val s4 = samples[(base + 2) % n]
+                    val smoothed = (s0 + s1 + s2 + s3 + s4) / 5f
+
+                    val normalised = (smoothed * scale + 1f) * 0.5f  // [0, 1]
                     val r = (ringRadius + baseThickness + normalised * waveAmplitude).toFloat()
                     val x = (center.x + r * cos(theta)).toFloat()
                     val y = (center.y + r * sin(theta)).toFloat()
@@ -144,7 +171,7 @@ fun StrobeRing(
                 }
                 path.close()
 
-                // Inner circle — EvenOdd punches it out, leaving a flat circular hole
+                // Inner perfect circle — EvenOdd punches it out
                 path.addOval(
                     Rect(
                         left = center.x - ringRadius,
@@ -156,7 +183,6 @@ fun StrobeRing(
 
                 drawPath(path = path, color = ringColor)
             } else {
-                // Fallback: no samples yet
                 drawCircle(
                     color = ringColor.copy(alpha = 0.4f),
                     radius = ringRadius + baseThickness / 2f,

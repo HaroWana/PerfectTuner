@@ -145,6 +145,7 @@ fun TunerScreen(
             ringColor = ringColor,
             isSilent = isSilent,
             waveformSamples = waveformSamples,
+            detectedStringIndex = detectedStringIndex,
             modifier = Modifier
                 .align(Alignment.Center)
                 .size(320.dp)
