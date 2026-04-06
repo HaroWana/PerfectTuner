@@ -112,8 +112,9 @@ fun TunerScreen(
         )
 
         StrobeRing(
-            centsOffset = if (isSilent) 0f else centsOffset,
+            centsOffset = centsOffset,
             ringColor = ringColor,
+            isSilent = isSilent,
             modifier = Modifier
                 .align(Alignment.Center)
                 .size(320.dp)
