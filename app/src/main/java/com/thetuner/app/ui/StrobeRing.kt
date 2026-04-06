@@ -22,11 +22,13 @@ import kotlin.math.sign
 const val RING_RADIUS_DP = 136f
 
 /**
- * Canvas-based strobe ring with waveform animation.
+ * Canvas-based strobe ring with real audio waveform rendering.
  *
- * Renders a sinusoidal waveform circle that rotates by advancing a phase offset.
+ * Renders the actual audio waveform around a ring, with a phase offset that advances
+ * continuously based on cents deviation — this drives the rotation effect.
  * Speed uses exponential decay so motion slows naturally as pitch nears in-tune.
- * Stops completely when within +/-5 cents. Shows a dim static circle when silent.
+ * Stops completely when within +/-5 cents. Shows a dim static circle when silent
+ * or when no waveform samples are available yet.
  *
  * Direction convention:
  * - Flat pitch (negative cents) -> clockwise rotation
@@ -37,6 +39,7 @@ fun StrobeRing(
     centsOffset: Float,
     ringColor: Color,
     isSilent: Boolean,
+    waveformSamples: FloatArray?,
     modifier: Modifier = Modifier
 ) {
     val phase = remember { mutableFloatStateOf(0f) }
@@ -66,8 +69,7 @@ fun StrobeRing(
         val ringDiameter = size.minDimension * 0.85f
         val strokeWidth = ringDiameter * 0.06f
         val ringRadius = ringDiameter / 2f
-        val waveAmplitude = strokeWidth * WAVE_AMPLITUDE_RATIO
-        val phaseRadians = phase.floatValue.toDouble() * (Math.PI / 180.0)
+        val waveAmplitude = ringRadius * 0.08f
 
         if (isSilent) {
             // Dim neutral circle — signals "listening" state
@@ -78,21 +80,37 @@ fun StrobeRing(
                 style = Stroke(width = strokeWidth)
             )
         } else {
-            // Waveform ring: 361 polar-coordinate points (0..360 inclusive closes the loop)
-            val path = Path()
-            for (i in 0 until SAMPLE_COUNT) {
-                val theta = (i.toDouble() / (SAMPLE_COUNT - 1)) * 2.0 * Math.PI
-                val displacement = kotlin.math.sin(theta * WAVE_CYCLES + phaseRadians) * waveAmplitude
-                val r = (ringRadius + displacement).toFloat()
-                val x = (center.x + r * kotlin.math.cos(theta)).toFloat()
-                val y = (center.y + r * kotlin.math.sin(theta)).toFloat()
-                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            val samples = waveformSamples
+            if (samples != null && samples.isNotEmpty()) {
+                // Render real audio waveform around the ring.
+                // The phase offset controls which sample maps to angle 0, driving rotation.
+                val path = Path()
+                val startOffset = ((phase.floatValue / 360f) * samples.size).toInt().let {
+                    ((it % samples.size) + samples.size) % samples.size  // handle negative modulo
+                }
+                for (i in 0 until SAMPLE_COUNT) {
+                    val theta = (i.toDouble() / (SAMPLE_COUNT - 1)) * 2.0 * Math.PI
+                    val sampleIdx = (startOffset + i * samples.size / SAMPLE_COUNT) % samples.size
+                    val displacement = samples[sampleIdx] * waveAmplitude
+                    val r = (ringRadius + displacement).toFloat()
+                    val x = (center.x + r * kotlin.math.cos(theta)).toFloat()
+                    val y = (center.y + r * kotlin.math.sin(theta)).toFloat()
+                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(
+                    path = path,
+                    color = ringColor,
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                )
+            } else {
+                // Fallback: no samples yet — draw a simple ring
+                drawCircle(
+                    color = ringColor.copy(alpha = 0.4f),
+                    radius = ringRadius,
+                    center = center,
+                    style = Stroke(width = strokeWidth)
+                )
             }
-            drawPath(
-                path = path,
-                color = ringColor,
-                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-            )
         }
     }
 }
@@ -100,6 +118,4 @@ fun StrobeRing(
 private const val SPEED_SCALE = 3.35f
 private const val EXPO_K = 0.08f
 private const val TOLERANCE_CENTS = 5f
-private const val WAVE_CYCLES = 8.0
-private const val WAVE_AMPLITUDE_RATIO = 0.30f
 private const val SAMPLE_COUNT = 361

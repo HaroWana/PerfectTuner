@@ -66,6 +66,7 @@ fun TunerScreen(
     val isSilent = state.isSilent
     val noteName = state.noteName
     val octave = state.octave
+    val waveformSamples = state.waveformSamples
 
     val targetRingColor = when {
         detectedStringIndex != null && isInTune -> StringColors.inTuneGreen
@@ -143,6 +144,7 @@ fun TunerScreen(
             centsOffset = centsOffset,
             ringColor = ringColor,
             isSilent = isSilent,
+            waveformSamples = waveformSamples,
             modifier = Modifier
                 .align(Alignment.Center)
                 .size(320.dp)

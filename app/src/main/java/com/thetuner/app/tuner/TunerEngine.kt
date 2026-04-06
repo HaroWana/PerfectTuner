@@ -156,8 +156,18 @@ class TunerEngine @Inject constructor(
             centsOffset = smoothedCents,
             detectedStringIndex = detectedString,
             isInTune = isInTune,
-            activeTuningId = currentTuning.id
+            activeTuningId = currentTuning.id,
+            waveformSamples = downsampleFrame(frame)
         )
+    }
+
+    private fun downsampleFrame(frame: FloatArray, targetSize: Int = 256): FloatArray {
+        val result = FloatArray(targetSize)
+        val step = frame.size.toFloat() / targetSize
+        for (i in 0 until targetSize) {
+            result[i] = frame[(i * step).toInt()]
+        }
+        return result
     }
 
     private fun computeRmsDbfs(samples: FloatArray): Float {

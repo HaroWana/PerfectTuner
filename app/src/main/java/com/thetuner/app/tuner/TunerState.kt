@@ -9,5 +9,6 @@ data class TunerState(
     val centsOffset: Float = 0f,
     val detectedStringIndex: Int? = null,
     val isInTune: Boolean = false,
-    val activeTuningId: String = "standard"
+    val activeTuningId: String = "standard",
+    val waveformSamples: FloatArray? = null
 )
