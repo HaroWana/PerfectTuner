@@ -30,6 +30,11 @@ const val RING_RADIUS_DP = 136f
  * Stops completely when within +/-5 cents. Shows a dim static circle when silent
  * or when no waveform samples are available yet.
  *
+ * Smoothing:
+ * - Rotation speed is EMA-smoothed so noisy centsOffset doesn't cause erratic lurching.
+ * - Waveform samples are blended frame-by-frame toward the latest audio frame so shape
+ *   transitions are gradual rather than instant jumps at audio frame boundaries (~40 Hz).
+ *
  * Direction convention:
  * - Flat pitch (negative cents) -> clockwise rotation
  * - Sharp pitch (positive cents) -> counterclockwise rotation
@@ -43,23 +48,58 @@ fun StrobeRing(
     modifier: Modifier = Modifier
 ) {
     val phase = remember { mutableFloatStateOf(0f) }
-    // rememberUpdatedState so the LaunchedEffect always reads the latest centsOffset
+    // rememberUpdatedState so the LaunchedEffect always reads the latest values
     // without restarting the coroutine on every recomposition
     val currentCentsOffset by rememberUpdatedState(centsOffset)
+    val currentWaveform by rememberUpdatedState(waveformSamples)
 
-    // Frame-driven phase accumulator
+    // In-place working buffer for waveform blending — no Compose state, no allocation per frame.
+    // Canvas reads this on every draw since phase changes trigger redraws each display frame.
+    val workSamplesHolder = remember { arrayOfNulls<FloatArray>(1) }
+
+    // Frame-driven phase accumulator + waveform blend
     LaunchedEffect(Unit) {
         var prevFrameTime = 0L
+        var currentSpeed = 0f  // signed degrees/second, smoothed
+
         while (isActive) {
             withInfiniteAnimationFrameMillis { frameTimeMs ->
-                val deltaSeconds = if (prevFrameTime == 0L) 0f else (frameTimeMs - prevFrameTime) / 1000f
+                val deltaSeconds = if (prevFrameTime == 0L) 0f
+                    else (frameTimeMs - prevFrameTime) / 1000f
                 prevFrameTime = frameTimeMs
 
-                // Only rotate when outside tolerance
-                if (abs(currentCentsOffset) > TOLERANCE_CENTS) {
-                    val absCents = abs(currentCentsOffset)
-                    val speed = SPEED_SCALE * (exp(EXPO_K * absCents) - 1f)
-                    phase.floatValue = (phase.floatValue - sign(currentCentsOffset) * speed * deltaSeconds) % 360f
+                // --- Rotation speed smoothing ---
+                // Compute target speed from current cents, then EMA-smooth it.
+                // This prevents rapid centsOffset fluctuations from causing erratic lurching.
+                val absCents = abs(currentCentsOffset)
+                val targetSpeed = if (absCents > TOLERANCE_CENTS) {
+                    -sign(currentCentsOffset) * SPEED_SCALE * (exp(EXPO_K * absCents) - 1f)
+                } else {
+                    0f
+                }
+                currentSpeed += (targetSpeed - currentSpeed) * SPEED_SMOOTH_ALPHA
+                if (abs(currentSpeed) > SPEED_DEAD_ZONE) {
+                    phase.floatValue = (phase.floatValue + currentSpeed * deltaSeconds) % 360f
+                }
+
+                // --- Waveform blending ---
+                // Each display frame, lerp the working buffer toward the latest audio frame.
+                // Audio arrives at ~40 Hz; display runs at ~60 Hz. Without blending, every
+                // incoming audio frame causes an instant shape jump visible as stutter.
+                val target = currentWaveform
+                if (target != null && target.isNotEmpty()) {
+                    val work = workSamplesHolder[0]
+                    if (work == null || work.size != target.size) {
+                        // First frame or size change — copy directly, no blend
+                        workSamplesHolder[0] = target.copyOf()
+                    } else {
+                        // Blend in place: no allocation, thread-safe (both on main thread)
+                        for (i in work.indices) {
+                            work[i] += (target[i] - work[i]) * WAVEFORM_BLEND_ALPHA
+                        }
+                    }
+                } else {
+                    workSamplesHolder[0] = null
                 }
             }
         }
@@ -80,16 +120,14 @@ fun StrobeRing(
                 style = Stroke(width = strokeWidth)
             )
         } else {
-            val samples = waveformSamples
+            val samples = workSamplesHolder[0]
             if (samples != null && samples.isNotEmpty()) {
                 // Normalize samples to their frame peak so the waveform always uses
-                // full amplitude regardless of microphone level. PCM16 / 32768f produces
-                // values in 0.001–0.1 range for typical guitar playing — without
-                // normalization the displacement is sub-pixel and looks like a plain circle.
+                // full amplitude regardless of microphone level.
                 val peak = samples.maxOf { kotlin.math.abs(it) }
                 val scale = if (peak > 0.001f) 1f / peak else 0f
 
-                // Render real audio waveform around the ring.
+                // Render audio waveform around the ring.
                 // The phase offset controls which sample maps to angle 0, driving rotation.
                 val path = Path()
                 val startOffset = ((phase.floatValue / 360f) * samples.size).toInt().let {
@@ -126,3 +164,14 @@ private const val SPEED_SCALE = 3.35f
 private const val EXPO_K = 0.08f
 private const val TOLERANCE_CENTS = 5f
 private const val SAMPLE_COUNT = 361
+
+// Rotation speed EMA: lower = more smoothing, higher = more responsive.
+// 0.06 gives ~17 frames (~280ms at 60fps) to fully settle — removes jitter without lag.
+private const val SPEED_SMOOTH_ALPHA = 0.06f
+
+// Below this speed (degrees/second) the ring is considered stopped to avoid micro-drift.
+private const val SPEED_DEAD_ZONE = 0.5f
+
+// Waveform blend rate per display frame: 0.4 blends ~93% of the way in 4 frames (~67ms).
+// Fast enough to track audio frames (~25ms apart) without visible shape jumps.
+private const val WAVEFORM_BLEND_ALPHA = 0.4f
