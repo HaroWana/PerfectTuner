@@ -9,14 +9,17 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.drawscope.Stroke
 import kotlinx.coroutines.isActive
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.sign
+import kotlin.math.sin
 
 // Exposed for TunerScreen to pass to StringsOverlay
 const val RING_RADIUS_DP = 136f
@@ -24,16 +27,14 @@ const val RING_RADIUS_DP = 136f
 /**
  * Canvas-based strobe ring with real audio waveform rendering.
  *
- * Renders the actual audio waveform around a ring, with a phase offset that advances
- * continuously based on cents deviation — this drives the rotation effect.
- * Speed uses exponential decay so motion slows naturally as pitch nears in-tune.
- * Stops completely when within +/-5 cents. Shows a dim static circle when silent
- * or when no waveform samples are available yet.
+ * Drawn as a filled annular shape:
+ * - Inner boundary: perfect circle (flat, no waveform)
+ * - Outer boundary: follows the audio waveform, bulging outward
  *
- * Smoothing:
- * - Rotation speed is EMA-smoothed so noisy centsOffset doesn't cause erratic lurching.
- * - Waveform samples are blended frame-by-frame toward the latest audio frame so shape
- *   transitions are gradual rather than instant jumps at audio frame boundaries (~40 Hz).
+ * The phase offset shifts which sample maps to angle 0, producing visible rotation.
+ * Speed uses exponential decay and is EMA-smoothed to prevent jitter.
+ * Waveform samples are blended frame-by-frame to smooth shape transitions.
+ * Stops completely when within +/-5 cents. Dim static circle when silent.
  *
  * Direction convention:
  * - Flat pitch (negative cents) -> clockwise rotation
@@ -48,19 +49,16 @@ fun StrobeRing(
     modifier: Modifier = Modifier
 ) {
     val phase = remember { mutableFloatStateOf(0f) }
-    // rememberUpdatedState so the LaunchedEffect always reads the latest values
-    // without restarting the coroutine on every recomposition
     val currentCentsOffset by rememberUpdatedState(centsOffset)
     val currentWaveform by rememberUpdatedState(waveformSamples)
 
-    // In-place working buffer for waveform blending — no Compose state, no allocation per frame.
-    // Canvas reads this on every draw since phase changes trigger redraws each display frame.
+    // In-place working buffer — blended toward latest audio frame each display frame.
+    // No Compose state: Canvas reads this on every draw since phase changes trigger redraws.
     val workSamplesHolder = remember { arrayOfNulls<FloatArray>(1) }
 
-    // Frame-driven phase accumulator + waveform blend
     LaunchedEffect(Unit) {
         var prevFrameTime = 0L
-        var currentSpeed = 0f  // signed degrees/second, smoothed
+        var currentSpeed = 0f  // signed degrees/second, EMA-smoothed
 
         while (isActive) {
             withInfiniteAnimationFrameMillis { frameTimeMs ->
@@ -68,9 +66,7 @@ fun StrobeRing(
                     else (frameTimeMs - prevFrameTime) / 1000f
                 prevFrameTime = frameTimeMs
 
-                // --- Rotation speed smoothing ---
-                // Compute target speed from current cents, then EMA-smooth it.
-                // This prevents rapid centsOffset fluctuations from causing erratic lurching.
+                // EMA-smooth rotation speed to prevent noisy centsOffset causing lurching
                 val absCents = abs(currentCentsOffset)
                 val targetSpeed = if (absCents > TOLERANCE_CENTS) {
                     -sign(currentCentsOffset) * SPEED_SCALE * (exp(EXPO_K * absCents) - 1f)
@@ -82,18 +78,14 @@ fun StrobeRing(
                     phase.floatValue = (phase.floatValue + currentSpeed * deltaSeconds) % 360f
                 }
 
-                // --- Waveform blending ---
-                // Each display frame, lerp the working buffer toward the latest audio frame.
-                // Audio arrives at ~40 Hz; display runs at ~60 Hz. Without blending, every
-                // incoming audio frame causes an instant shape jump visible as stutter.
+                // Blend working sample buffer toward latest audio frame — avoids shape jumps
+                // at audio frame rate (~40 Hz) by spreading the transition over display frames
                 val target = currentWaveform
                 if (target != null && target.isNotEmpty()) {
                     val work = workSamplesHolder[0]
                     if (work == null || work.size != target.size) {
-                        // First frame or size change — copy directly, no blend
                         workSamplesHolder[0] = target.copyOf()
                     } else {
-                        // Blend in place: no allocation, thread-safe (both on main thread)
                         for (i in work.indices) {
                             work[i] += (target[i] - work[i]) * WAVEFORM_BLEND_ALPHA
                         }
@@ -107,53 +99,69 @@ fun StrobeRing(
 
     Canvas(modifier = modifier) {
         val ringDiameter = size.minDimension * 0.85f
-        val strokeWidth = ringDiameter * 0.06f
         val ringRadius = ringDiameter / 2f
-        val waveAmplitude = ringRadius * 0.08f
+        val baseThickness = ringDiameter * 0.06f   // minimum ring width (inner to outer base)
+        val waveAmplitude = baseThickness * 1.2f    // max outer-edge excursion beyond base
 
         if (isSilent) {
             // Dim neutral circle — signals "listening" state
             drawCircle(
                 color = ringColor.copy(alpha = 0.25f),
-                radius = ringRadius,
+                radius = ringRadius + baseThickness / 2f,
                 center = center,
-                style = Stroke(width = strokeWidth)
+                style = Stroke(width = baseThickness)
             )
         } else {
             val samples = workSamplesHolder[0]
             if (samples != null && samples.isNotEmpty()) {
-                // Normalize samples to their frame peak so the waveform always uses
-                // full amplitude regardless of microphone level.
-                val peak = samples.maxOf { kotlin.math.abs(it) }
+                // Peak-normalize so the waveform always uses the full amplitude range
+                val peak = samples.maxOf { abs(it) }
                 val scale = if (peak > 0.001f) 1f / peak else 0f
 
-                // Render audio waveform around the ring.
-                // The phase offset controls which sample maps to angle 0, driving rotation.
-                val path = Path()
+                // Which sample aligns with angle 0 — advancing this is the rotation mechanism
                 val startOffset = ((phase.floatValue / 360f) * samples.size).toInt().let {
-                    ((it % samples.size) + samples.size) % samples.size  // handle negative modulo
+                    ((it % samples.size) + samples.size) % samples.size
                 }
+
+                // Filled annular path:
+                //   Inner boundary — perfect circle at ringRadius (inner edge, flat)
+                //   Outer boundary — waveform-displaced, always >= ringRadius + baseThickness
+                //
+                // Sample mapped to [0, waveAmplitude] via (s * scale + 1) / 2 so the outer
+                // edge varies smoothly between baseThickness and baseThickness + waveAmplitude
+                // while preserving the true waveform shape (not rectified).
+                val path = Path().apply { fillType = PathFillType.EvenOdd }
+
+                // Outer waveform edge
                 for (i in 0 until SAMPLE_COUNT) {
                     val theta = (i.toDouble() / (SAMPLE_COUNT - 1)) * 2.0 * Math.PI
                     val sampleIdx = (startOffset + i * samples.size / SAMPLE_COUNT) % samples.size
-                    val displacement = samples[sampleIdx] * scale * waveAmplitude
-                    val r = (ringRadius + displacement).toFloat()
-                    val x = (center.x + r * kotlin.math.cos(theta)).toFloat()
-                    val y = (center.y + r * kotlin.math.sin(theta)).toFloat()
+                    val normalised = (samples[sampleIdx] * scale + 1f) * 0.5f  // [0, 1]
+                    val r = (ringRadius + baseThickness + normalised * waveAmplitude).toFloat()
+                    val x = (center.x + r * cos(theta)).toFloat()
+                    val y = (center.y + r * sin(theta)).toFloat()
                     if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
                 }
-                drawPath(
-                    path = path,
-                    color = ringColor,
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                path.close()
+
+                // Inner circle — EvenOdd punches it out, leaving a flat circular hole
+                path.addOval(
+                    Rect(
+                        left = center.x - ringRadius,
+                        top = center.y - ringRadius,
+                        right = center.x + ringRadius,
+                        bottom = center.y + ringRadius
+                    )
                 )
+
+                drawPath(path = path, color = ringColor)
             } else {
-                // Fallback: no samples yet — draw a simple ring
+                // Fallback: no samples yet
                 drawCircle(
                     color = ringColor.copy(alpha = 0.4f),
-                    radius = ringRadius,
+                    radius = ringRadius + baseThickness / 2f,
                     center = center,
-                    style = Stroke(width = strokeWidth)
+                    style = Stroke(width = baseThickness)
                 )
             }
         }
@@ -164,14 +172,6 @@ private const val SPEED_SCALE = 3.35f
 private const val EXPO_K = 0.08f
 private const val TOLERANCE_CENTS = 5f
 private const val SAMPLE_COUNT = 361
-
-// Rotation speed EMA: lower = more smoothing, higher = more responsive.
-// 0.06 gives ~17 frames (~280ms at 60fps) to fully settle — removes jitter without lag.
 private const val SPEED_SMOOTH_ALPHA = 0.06f
-
-// Below this speed (degrees/second) the ring is considered stopped to avoid micro-drift.
 private const val SPEED_DEAD_ZONE = 0.5f
-
-// Waveform blend rate per display frame: 0.4 blends ~93% of the way in 4 frames (~67ms).
-// Fast enough to track audio frames (~25ms apart) without visible shape jumps.
 private const val WAVEFORM_BLEND_ALPHA = 0.4f
