@@ -34,6 +34,7 @@ class TunerEngine @Inject constructor(
     private var silenceCounter = 0
     private val stringDetector = StringDetector()
     private var smoothedCents = 0f
+    private var lastTargetFreq = 0f
 
     // @Volatile: written from main thread via setTuning/setA4Reference,
     // read from Dispatchers.Default in processFrame. Volatile ensures visibility.
@@ -53,6 +54,7 @@ class TunerEngine @Inject constructor(
         // Reset hysteresis — stale state from old tuning causes wrong initial detection
         stringDetector.reset()
         smoothedCents = 0f
+        lastTargetFreq = 0f
         medianCount = 0
         // Update state immediately so UI reflects change even during silence
         _state.value = _state.value.copy(activeTuningId = tuning.id)
@@ -68,6 +70,7 @@ class TunerEngine @Inject constructor(
         medianCount = 0
         silenceCounter = 0
         smoothedCents = 0f
+        lastTargetFreq = 0f
         stringDetector.reset()
 
         val newScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -97,6 +100,7 @@ class TunerEngine @Inject constructor(
         medianCount = 0
         silenceCounter = 0
         smoothedCents = 0f
+        lastTargetFreq = 0f
         stringDetector.reset()
         _state.value = TunerState(
             isListening = false,
@@ -132,9 +136,6 @@ class TunerEngine @Inject constructor(
         // NoteMapper always uses dynamic A4 reference
         val note = NoteMapper.frequencyToNote(filteredFreq, currentA4)
 
-        val rawCents = NoteMapper.centsBetween(filteredFreq, note.frequency)
-        smoothedCents = EMA_ALPHA * rawCents + (1 - EMA_ALPHA) * smoothedCents
-
         // Chromatic mode: run string detection against Standard tuning for the visual overlay.
         // The note/cents display uses chromatic (NoteMapper already found nearest semitone).
         // CONTEXT.md: "string detection still runs — the nearest matching string lights up."
@@ -145,16 +146,25 @@ class TunerEngine @Inject constructor(
         }
         val detectedString = stringDetector.detect(filteredFreq, detectionFrequencies)
 
-        // isInTune must be relative to the target string's frequency, not the nearest
-        // chromatic note. Using chromatic cents caused green to fire on any semitone
-        // boundary, regardless of whether it matched the tuning target.
-        // In chromatic mode: no specific target, so fall back to chromatic nearest note.
-        val isInTune = if (!isChromatic && detectedString != null) {
-            val targetFreq = detectionFrequencies[detectedString]
-            abs(NoteMapper.centsBetween(filteredFreq, targetFreq)) <= IN_TUNE_TOLERANCE
+        // Cents must be relative to the target string's frequency, not the nearest
+        // chromatic note. Chromatic cents made green, rotation freeze, and the "+0c"
+        // readout all fire on any semitone boundary, regardless of the tuning target.
+        // In chromatic mode (or before a string locks): fall back to nearest note.
+        val targetFreq = if (!isChromatic && detectedString != null) {
+            detectionFrequencies[detectedString]
         } else {
-            abs(smoothedCents) <= IN_TUNE_TOLERANCE
+            note.frequency
         }
+        val rawCents = NoteMapper.centsBetween(filteredFreq, targetFreq)
+        // Re-seed the EMA when the target changes — blending cents measured against
+        // two different targets produces meaningless intermediate values.
+        smoothedCents = if (targetFreq == lastTargetFreq) {
+            EMA_ALPHA * rawCents + (1 - EMA_ALPHA) * smoothedCents
+        } else {
+            rawCents
+        }
+        lastTargetFreq = targetFreq
+        val isInTune = abs(smoothedCents) <= IN_TUNE_TOLERANCE
 
         _state.value = TunerState(
             noteName = note.name,
@@ -194,6 +204,7 @@ class TunerEngine @Inject constructor(
         )
         medianCount = 0
         smoothedCents = 0f
+        lastTargetFreq = 0f
         stringDetector.reset()
     }
 

@@ -18,6 +18,7 @@ import kotlinx.coroutines.isActive
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.exp
+import kotlin.math.min
 import kotlin.math.sign
 import kotlin.math.sin
 
@@ -79,7 +80,9 @@ fun StrobeRing(
                 prevFrameTime = frameTimeMs
 
                 // --- Rotation speed (EMA-smoothed) ---
-                val absCents = abs(currentCentsOffset)
+                // Target-based cents can reach ±200 (vs ±50 chromatic); cap the
+                // exponential input so far-off strings spin at max speed, not e^16.
+                val absCents = min(abs(currentCentsOffset), SPEED_CENTS_CAP)
                 val targetSpeed = if (absCents > TOLERANCE_CENTS) {
                     -sign(currentCentsOffset) * SPEED_SCALE * (exp(EXPO_K * absCents) - 1f)
                 } else {
@@ -196,6 +199,7 @@ fun StrobeRing(
 
 private const val SPEED_SCALE = 3.35f
 private const val EXPO_K = 0.08f
+private const val SPEED_CENTS_CAP = 50f
 private const val TOLERANCE_CENTS = 5f
 private const val SAMPLE_COUNT = 361
 private const val SPEED_SMOOTH_ALPHA = 0.06f
