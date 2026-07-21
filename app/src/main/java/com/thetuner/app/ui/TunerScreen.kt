@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -29,7 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -116,19 +116,20 @@ fun TunerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF121212))
-            .drawWithContent {
-                drawContent()
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color(0x20000000)   // ~12% black at edges
-                        ),
-                        center = Offset(size.width / 2f, size.height / 2f),
-                        radius = size.maxDimension / 2f * 1.15f
+            .drawWithCache {
+                // Brush rebuilt only when size changes, not on every draw
+                val vignette = Brush.radialGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color(0x20000000)   // ~12% black at edges
                     ),
-                    size = size
+                    center = Offset(size.width / 2f, size.height / 2f),
+                    radius = size.maxDimension / 2f * 1.15f
                 )
+                onDrawWithContent {
+                    drawContent()
+                    drawRect(brush = vignette, size = size)
+                }
             }
     ) {
         StringsOverlay(
@@ -185,7 +186,7 @@ fun TunerScreen(
             },
             leadingIcon = {
                 Icon(
-                    imageVector = Icons.Default.Settings,
+                    imageVector = Icons.Default.MusicNote,
                     contentDescription = null,
                     modifier = Modifier.size(AssistChipDefaults.IconSize),
                     tint = Color.White.copy(alpha = 0.7f)

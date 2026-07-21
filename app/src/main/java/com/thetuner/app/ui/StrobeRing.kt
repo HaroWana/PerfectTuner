@@ -64,8 +64,12 @@ fun StrobeRing(
     val currentIsSilent by rememberUpdatedState(isSilent)
 
     // In-place working buffer — blended toward latest audio frame each display frame.
-    // No Compose state: Canvas reads this on every draw since phase changes trigger redraws.
+    // Not Compose state: redraws are driven by phase writes while rotating, and by
+    // recomposition when each new waveformSamples array arrives (also every active
+    // frame), which covers the frozen-in-tune case where phase stops updating.
     val workSamplesHolder = remember { arrayOfNulls<FloatArray>(1) }
+    val smoothedPeakHolder = remember { floatArrayOf(0f) }
+    val ringPath = remember { Path() }
 
     LaunchedEffect(Unit) {
         var prevFrameTime = 0L
@@ -79,6 +83,12 @@ fun StrobeRing(
                     else (frameTimeMs - prevFrameTime) / 1000f
                 prevFrameTime = frameTimeMs
 
+                // Alphas derived from per-second rates so smoothing feels identical
+                // on 60 Hz and 120 Hz displays (per-frame constants settle twice as
+                // fast at 120 Hz).
+                val speedAlpha = 1f - exp(-SPEED_SMOOTH_RATE * deltaSeconds)
+                val blendAlpha = 1f - exp(-WAVEFORM_BLEND_RATE * deltaSeconds)
+
                 // --- Rotation speed (EMA-smoothed) ---
                 // Target-based cents can reach ±200 (vs ±50 chromatic); cap the
                 // exponential input so far-off strings spin at max speed, not e^16.
@@ -88,7 +98,7 @@ fun StrobeRing(
                 } else {
                     0f
                 }
-                currentSpeed += (targetSpeed - currentSpeed) * SPEED_SMOOTH_ALPHA
+                currentSpeed += (targetSpeed - currentSpeed) * speedAlpha
                 if (abs(currentSpeed) > SPEED_DEAD_ZONE) {
                     phase.floatValue = (phase.floatValue + currentSpeed * deltaSeconds) % 360f
                 }
@@ -101,6 +111,7 @@ fun StrobeRing(
                 if (silent) {
                     // Going silent: clear buffer so next active frame starts fresh
                     workSamplesHolder[0] = null
+                    smoothedPeakHolder[0] = 0f
                 } else if (target != null && target.isNotEmpty()) {
                     val work = workSamplesHolder[0]
                     val frequencyChanged = prevWasSilent || stringIdx != prevStringIndex
@@ -109,11 +120,15 @@ fun StrobeRing(
                         // New session or string switch: copy immediately — never blend
                         // between waveforms from different frequencies (produces garbage)
                         workSamplesHolder[0] = target.copyOf()
+                        smoothedPeakHolder[0] = peakOf(target)
                     } else {
                         // Same frequency: smooth blend toward the latest audio frame
                         for (i in work.indices) {
-                            work[i] += (target[i] - work[i]) * WAVEFORM_BLEND_ALPHA
+                            work[i] += (target[i] - work[i]) * blendAlpha
                         }
+                        // Smooth the normalization peak too — an instantaneous 1/peak
+                        // rescales the whole ring abruptly on one-frame transients
+                        smoothedPeakHolder[0] += (peakOf(work) - smoothedPeakHolder[0]) * blendAlpha
                     }
                 }
 
@@ -139,7 +154,7 @@ fun StrobeRing(
         } else {
             val samples = workSamplesHolder[0]
             if (samples != null && samples.isNotEmpty()) {
-                val peak = samples.maxOf { abs(it) }
+                val peak = smoothedPeakHolder[0]
                 val scale = if (peak > 0.001f) 1f / peak else 0f
                 val n = samples.size
 
@@ -152,7 +167,11 @@ fun StrobeRing(
                 // smooth out high-frequency noise without losing the waveform shape.
                 // Sample mapped [−1,1] → [0,1] so the outer edge always stays outside
                 // the inner circle and the full waveform asymmetry is preserved.
-                val path = Path().apply { fillType = PathFillType.EvenOdd }
+                val path = ringPath.apply {
+                    reset()
+                    fillType = PathFillType.EvenOdd
+                }
+                var seamStartValue = 0f
 
                 for (i in 0 until SAMPLE_COUNT) {
                     val theta = (i.toDouble() / (SAMPLE_COUNT - 1)) * 2.0 * Math.PI
@@ -164,7 +183,17 @@ fun StrobeRing(
                     val s2 = samples[base % n]
                     val s3 = samples[(base + 1) % n]
                     val s4 = samples[(base + 2) % n]
-                    val smoothed = (s0 + s1 + s2 + s3 + s4) / 5f
+                    var smoothed = (s0 + s1 + s2 + s3 + s4) / 5f
+
+                    // First and last points share θ=0 but map to different samples;
+                    // blend the tail toward the starting value to close the seam
+                    if (i == 0) {
+                        seamStartValue = smoothed
+                    } else if (i > SAMPLE_COUNT - 1 - SEAM_BLEND_DEGREES) {
+                        val t = (i - (SAMPLE_COUNT - 1 - SEAM_BLEND_DEGREES)).toFloat() /
+                            SEAM_BLEND_DEGREES
+                        smoothed += (seamStartValue - smoothed) * t
+                    }
 
                     val normalised = (smoothed * scale + 1f) * 0.5f  // [0, 1]
                     val r = (ringRadius + baseThickness + normalised * waveAmplitude).toFloat()
@@ -197,11 +226,24 @@ fun StrobeRing(
     }
 }
 
+private fun peakOf(samples: FloatArray): Float {
+    var peak = 0f
+    for (s in samples) {
+        val a = abs(s)
+        if (a > peak) peak = a
+    }
+    return peak
+}
+
 private const val SPEED_SCALE = 3.35f
 private const val EXPO_K = 0.08f
 private const val SPEED_CENTS_CAP = 50f
 private const val TOLERANCE_CENTS = 5f
 private const val SAMPLE_COUNT = 361
-private const val SPEED_SMOOTH_ALPHA = 0.06f
+private const val SEAM_BLEND_DEGREES = 12
 private const val SPEED_DEAD_ZONE = 0.5f
-private const val WAVEFORM_BLEND_ALPHA = 0.4f
+
+// Per-second EMA rates; alpha = 1 - exp(-rate * dt). Chosen to match the feel of
+// the previous per-frame alphas (0.06 and 0.4) at 60 Hz.
+private const val SPEED_SMOOTH_RATE = 3.7f
+private const val WAVEFORM_BLEND_RATE = 30f

@@ -2,6 +2,7 @@ package com.thetuner.app.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -30,6 +31,8 @@ fun StringsOverlay(
     ringRadiusDp: Dp,
     modifier: Modifier = Modifier
 ) {
+    val clipCircle = remember { Path() }
+
     Canvas(modifier = modifier) {
         val centerX = size.width / 2f
         val centerY = size.height / 2f
@@ -45,9 +48,8 @@ fun StringsOverlay(
         // Clip to ring outer edge — DrawScope implements Density so toPx() works directly
         val ringOuterRadiusPx = ringRadiusDp.toPx()
         val clipCenter = Offset(size.width / 2f, size.height / 2f)
-        val clipCircle = Path().apply {
-            addOval(Rect(center = clipCenter, radius = ringOuterRadiusPx))
-        }
+        clipCircle.reset()
+        clipCircle.addOval(Rect(center = clipCenter, radius = ringOuterRadiusPx))
 
         clipPath(clipCircle, clipOp = ClipOp.Intersect) {
             for (i in 0 until STRING_COUNT) {
