@@ -53,6 +53,7 @@ fun PitchTrace(
     val linePath = remember { Path() }
     val fillPath = remember { Path() }
     val textMeasurer = rememberTextMeasurer()
+    val axisLayouts = remember(textMeasurer) { AXIS_LABELS.map { (cents, text) -> cents to textMeasurer.measure(text, AXIS_LABEL_STYLE) } }
 
     LaunchedEffect(Unit) {
         while (isActive) {
@@ -82,8 +83,8 @@ fun PitchTrace(
         )
 
         // Gridlines at ±25c
-        for (cents in intArrayOf(-25, 25)) {
-            val x = TraceGeometry.centsToX(cents.toFloat(), size.width, inset)
+        for (cents in GRID_CENTS) {
+            val x = TraceGeometry.centsToX(cents, size.width, inset)
             drawLine(
                 color = Color(0xFF2C2C2C),
                 start = Offset(x, 0f),
@@ -102,9 +103,7 @@ fun PitchTrace(
         )
 
         // Axis labels along the bottom edge
-        val labelStyle = TextStyle(color = Color(0xFF666666), fontSize = 10.sp)
-        for ((cents, text) in AXIS_LABELS) {
-            val layout = textMeasurer.measure(text, labelStyle)
+        for ((cents, layout) in axisLayouts) {
             drawText(
                 textLayoutResult = layout,
                 topLeft = Offset(
@@ -181,4 +180,6 @@ private fun segmentColor(
 // Pen dot lingers briefly after the pen lifts, then disappears
 private const val PEN_FADE_MS = 300L
 
+private val GRID_CENTS = floatArrayOf(-25f, 25f)
+private val AXIS_LABEL_STYLE = TextStyle(color = Color(0xFF666666), fontSize = 10.sp)
 private val AXIS_LABELS = listOf(-25f to "-25", 0f to "0", 25f to "+25")
