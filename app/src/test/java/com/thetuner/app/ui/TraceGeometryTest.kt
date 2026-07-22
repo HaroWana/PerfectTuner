@@ -2,7 +2,6 @@ package com.thetuner.app.ui
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
-import java.util.ArrayDeque
 
 class TraceGeometryTest {
 

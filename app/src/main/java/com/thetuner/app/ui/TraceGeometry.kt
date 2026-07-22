@@ -1,7 +1,5 @@
 package com.thetuner.app.ui
 
-import java.util.ArrayDeque
-
 data class TraceSample(
     val timeMs: Long,
     val cents: Float?, // null = pen lifted (silence)
@@ -58,7 +56,7 @@ object TraceGeometry {
     fun evictExpired(samples: ArrayDeque<TraceSample>, nowMs: Long) {
         val cutoff = nowMs - WINDOW_MS
         // Keep one sample past the cutoff so the trace exits the bottom edge smoothly
-        while (samples.size >= 2 && samples.elementAt(1).timeMs < cutoff) {
+        while (samples.size >= 2 && samples[1].timeMs < cutoff) {
             samples.removeFirst()
         }
     }
