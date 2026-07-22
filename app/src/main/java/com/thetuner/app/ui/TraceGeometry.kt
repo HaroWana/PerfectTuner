@@ -7,6 +7,13 @@ data class TraceSample(
     val stringIndex: Int?
 )
 
+data class SegmentRange(
+    val start: Int, // overlaps previous run's last index when runs are contiguous
+    val endExclusive: Int,
+    val inTune: Boolean,
+    val stringIndex: Int?
+)
+
 object TraceGeometry {
     const val WINDOW_MS = 5000L
     const val CENTS_RANGE = 50f
@@ -18,5 +25,31 @@ object TraceGeometry {
 
     fun timeToY(timeMs: Long, nowMs: Long, height: Float): Float {
         return (nowMs - timeMs).toFloat() / WINDOW_MS * height
+    }
+
+    fun segment(samples: List<TraceSample>): List<SegmentRange> {
+        val ranges = mutableListOf<SegmentRange>()
+        var i = 0
+        while (i < samples.size) {
+            if (samples[i].cents == null) {
+                i++
+                continue
+            }
+            var j = i + 1
+            while (j < samples.size &&
+                samples[j].cents != null &&
+                samples[j].inTune == samples[i].inTune &&
+                samples[j].stringIndex == samples[i].stringIndex
+            ) {
+                j++
+            }
+            // Borrow the previous drawable point so contiguous runs connect visually
+            val start = if (i > 0 && samples[i - 1].cents != null) i - 1 else i
+            if (j - start >= 2) {
+                ranges.add(SegmentRange(start, j, samples[i].inTune, samples[i].stringIndex))
+            }
+            i = j
+        }
+        return ranges
     }
 }
