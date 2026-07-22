@@ -3,10 +3,11 @@ package com.thetuner.app.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,18 +30,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.thetuner.app.tuner.STANDARD_TUNING
 import com.thetuner.app.tuner.TuningLibrary
 import com.thetuner.app.ui.theme.StringColors
-import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,20 +60,6 @@ fun TunerScreen(
     val detectedStringIndex = state.detectedStringIndex
     val isInTune = state.isInTune
     val isSilent = state.isSilent
-    val noteName = state.noteName
-    val octave = state.octave
-    val waveformSamples = state.waveformSamples
-
-    val targetRingColor = when {
-        detectedStringIndex != null && isInTune -> StringColors.inTuneGreen
-        detectedStringIndex != null -> StringColors.palette[detectedStringIndex]
-        else -> StringColors.neutralColor
-    }
-    val ringColor by animateColorAsState(
-        targetValue = targetRingColor,
-        animationSpec = tween(durationMillis = 200),
-        label = "ringColor"
-    )
 
     val targetDetectedStringColor = when {
         detectedStringIndex != null && isInTune -> StringColors.inTuneGreen
@@ -96,8 +78,12 @@ fun TunerScreen(
         }
     }
 
-    // FAB label: reflect active tuning name, truncated for display
     val activeTuning = TuningLibrary.findById(activeTuningId)
+    // Chromatic mode has no strings; the overlay lights the nearest Standard
+    // string (existing engine behavior), so label with Standard's note names.
+    val labelTuning = if (activeTuning.strings.isEmpty()) STANDARD_TUNING else activeTuning
+    val stringLabels = remember(labelTuning.id) { labelTuning.strings.map { it.noteName } }
+
     val fabLabel = when (activeTuning.id) {
         "chromatic" -> "Chr"
         "standard" -> "Std"
@@ -116,62 +102,30 @@ fun TunerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF121212))
-            .drawWithCache {
-                // Brush rebuilt only when size changes, not on every draw
-                val vignette = Brush.radialGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        Color(0x20000000)   // ~12% black at edges
-                    ),
-                    center = Offset(size.width / 2f, size.height / 2f),
-                    radius = size.maxDimension / 2f * 1.15f
-                )
-                onDrawWithContent {
-                    drawContent()
-                    drawRect(brush = vignette, size = size)
-                }
-            }
     ) {
-        StringsOverlay(
-            detectedStringIndex = detectedStringIndex,
-            stringColors = stringColors,
-            isInTune = isInTune,
-            inTuneColor = StringColors.inTuneGreen,
-            ringRadiusDp = RING_RADIUS_DP.dp,
-            modifier = Modifier.fillMaxSize()
-        )
-
-        StrobeRing(
-            centsOffset = centsOffset,
-            ringColor = ringColor,
-            isSilent = isSilent,
-            waveformSamples = waveformSamples,
-            detectedStringIndex = detectedStringIndex,
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(320.dp)
-        )
-
-        Column(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = if (isSilent || noteName == null) "--" else "$noteName${octave ?: ""}",
-                style = MaterialTheme.typography.displayLarge.copy(
-                    fontWeight = FontWeight.Black,
-                    fontSize = 80.sp
-                ),
-                color = Color.White
+        Column(modifier = Modifier.fillMaxSize()) {
+            PitchTrace(
+                centsOffset = centsOffset,
+                isInTune = isInTune,
+                isSilent = isSilent,
+                detectedStringIndex = detectedStringIndex,
+                stringColors = StringColors.palette,
+                inTuneColor = StringColors.inTuneGreen,
+                neutralColor = StringColors.neutralColor,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(0.55f)
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp)
             )
-            Text(
-                text = if (isSilent || noteName == null) "--" else {
-                    val rounded = centsOffset.roundToInt()
-                    val prefix = if (rounded > 0) "+" else ""
-                    "${prefix}${rounded}c"
-                },
-                style = MaterialTheme.typography.titleLarge,
-                color = Color.White.copy(alpha = 0.7f)
+            StringsOverlay(
+                detectedStringIndex = detectedStringIndex,
+                stringColors = stringColors,
+                isInTune = isInTune,
+                inTuneColor = StringColors.inTuneGreen,
+                stringLabels = stringLabels,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(0.45f)
             )
         }
 
