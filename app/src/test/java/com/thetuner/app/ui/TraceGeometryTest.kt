@@ -2,6 +2,7 @@ package com.thetuner.app.ui
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.util.ArrayDeque
 
 class TraceGeometryTest {
 
@@ -121,5 +122,33 @@ class TraceGeometryTest {
             sample(2L, cents = null)
         )
         assertEquals(emptyList<SegmentRange>(), TraceGeometry.segment(samples))
+    }
+
+    @Test
+    fun `evictExpired keeps exactly one sample older than the window`() {
+        // window 5000; now 10000 -> cutoff 5000
+        val samples = ArrayDeque(
+            listOf(sample(3_000L), sample(4_000L), sample(6_000L))
+        )
+        TraceGeometry.evictExpired(samples, 10_000L)
+        assertEquals(listOf(sample(4_000L), sample(6_000L)), samples.toList())
+    }
+
+    @Test
+    fun `evictExpired keeps all samples inside the window`() {
+        val samples = ArrayDeque(listOf(sample(6_000L), sample(7_000L)))
+        TraceGeometry.evictExpired(samples, 10_000L)
+        assertEquals(2, samples.size)
+    }
+
+    @Test
+    fun `evictExpired is a no-op on empty and single-sample buffers`() {
+        val empty = ArrayDeque<TraceSample>()
+        TraceGeometry.evictExpired(empty, 10_000L)
+        assertEquals(0, empty.size)
+
+        val single = ArrayDeque(listOf(sample(1_000L)))
+        TraceGeometry.evictExpired(single, 10_000L)
+        assertEquals(1, single.size)
     }
 }
