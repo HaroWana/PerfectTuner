@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -154,9 +154,9 @@ fun TunerScreen(
             ),
             border = null,
             modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 8.dp)
-                .windowInsetsPadding(WindowInsets.navigationBars)
+                .align(Alignment.TopEnd)
+                .padding(end = 16.dp, top = 8.dp)
+                .windowInsetsPadding(WindowInsets.statusBars)
         )
 
         if (showBottomSheet) {
