@@ -32,7 +32,8 @@ class PenTracker {
         isSilent: Boolean,
         cents: Float,
         inTune: Boolean,
-        stringIndex: Int?
+        stringIndex: Int?,
+        smoothingAlpha: Float = 1f
     ): List<TraceSample> {
         if (isSilent) {
             val held = heldCents
@@ -43,11 +44,19 @@ class PenTracker {
             )
         }
         val breakLine = holding && stringIndex != heldStringIndex
-        heldCents = cents
+        val previous = heldCents
+        // Snap on the first note and on string changes — gliding across strings
+        // would draw a misleading sweep. Glide toward the live pitch otherwise.
+        val smoothed = if (previous == null || stringIndex != heldStringIndex) {
+            cents
+        } else {
+            previous + (cents - previous) * smoothingAlpha
+        }
+        heldCents = smoothed
         heldInTune = inTune
         heldStringIndex = stringIndex
         holding = false
-        val sample = TraceSample(timeMs, cents, inTune, stringIndex)
+        val sample = TraceSample(timeMs, smoothed, inTune, stringIndex)
         return if (breakLine) {
             listOf(TraceSample(timeMs, null, false, null), sample)
         } else {

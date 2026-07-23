@@ -69,6 +69,37 @@ class PenTrackerTest {
     }
 
     @Test
+    fun `pen glides toward the live pitch with partial smoothing`() {
+        val tracker = PenTracker()
+        tracker.samplesFor(1L, isSilent = false, cents = 10f, inTune = false, stringIndex = 3)
+        assertEquals(
+            listOf(TraceSample(2L, cents = 15f, inTune = false, stringIndex = 3)),
+            tracker.samplesFor(2L, isSilent = false, cents = 20f, inTune = false, stringIndex = 3, smoothingAlpha = 0.5f)
+        )
+    }
+
+    @Test
+    fun `pen snaps instead of gliding when the string changes`() {
+        val tracker = PenTracker()
+        tracker.samplesFor(1L, isSilent = false, cents = 10f, inTune = false, stringIndex = 3)
+        assertEquals(
+            listOf(TraceSample(2L, cents = -30f, inTune = false, stringIndex = 4)),
+            tracker.samplesFor(2L, isSilent = false, cents = -30f, inTune = false, stringIndex = 4, smoothingAlpha = 0.5f)
+        )
+    }
+
+    @Test
+    fun `holds the smoothed value through silence, not the raw one`() {
+        val tracker = PenTracker()
+        tracker.samplesFor(1L, isSilent = false, cents = 10f, inTune = false, stringIndex = 3)
+        tracker.samplesFor(2L, isSilent = false, cents = 20f, inTune = false, stringIndex = 3, smoothingAlpha = 0.5f)
+        assertEquals(
+            listOf(TraceSample(3L, cents = 15f, inTune = false, stringIndex = 3)),
+            tracker.samplesFor(3L, isSilent = true, cents = 0f, inTune = false, stringIndex = null)
+        )
+    }
+
+    @Test
     fun `reset clears the held value`() {
         val tracker = PenTracker()
         tracker.samplesFor(1L, isSilent = false, cents = 7f, inTune = false, stringIndex = 3)

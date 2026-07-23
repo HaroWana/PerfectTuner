@@ -22,6 +22,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.isActive
+import kotlin.math.exp
 
 /**
  * Polygraph-style pitch trace: pen at the top, paper scrolls downward.
@@ -66,12 +67,16 @@ fun PitchTrace(
                     samples.clear()
                     penTracker.reset()
                 }
+                // dt-based glide: identical feel at 60 and 120 Hz
+                val deltaSeconds = if (prevFrameTimeMs == 0L) 0f
+                    else (frameTimeMs - prevFrameTimeMs) / 1000f
                 for (sample in penTracker.samplesFor(
                     timeMs = frameTimeMs,
                     isSilent = currentSilent,
                     cents = currentCents,
                     inTune = currentInTune,
-                    stringIndex = currentString
+                    stringIndex = currentString,
+                    smoothingAlpha = 1f - exp(-PEN_SMOOTH_RATE * deltaSeconds)
                 )) {
                     samples.addLast(sample)
                 }
@@ -226,6 +231,10 @@ private const val PEN_FADE_MS = 300L
 private const val FRAME_GAP_RESET_MS = 500L
 
 private const val PEN_ROW_FRACTION = 0.25f
+
+// Per-second glide rate for the pen easing toward the live pitch;
+// alpha = 1 - exp(-rate * dt). ~0.18 per frame at 60 Hz.
+private const val PEN_SMOOTH_RATE = 12f
 
 private val GRID_CENTS = floatArrayOf(-25f, 25f)
 private val TOLERANCE_MARKER_CENTS = floatArrayOf(-5f, 5f)
