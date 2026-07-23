@@ -111,13 +111,13 @@ class TunerEngineTest {
     }
 
     @Test
-    fun `mid-confidence octave-down burst does not drag the cents offset`() {
-        // YIN subharmonic error: while tracking E2, a burst of f/2 estimates at
-        // 0.72 confidence must be rejected as detection noise, not fed to the
-        // EMA (which would slam the display toward -1200c).
+    fun `octave-error burst does not drag the cents offset`() {
+        // YIN subharmonic error observed on device: while tracking E2, 1-2 frame
+        // bursts of f/2 at ~0.89 confidence. They must be rejected as detection
+        // noise, not fed to the EMA (which would slam the display toward -1200c).
         val marker = shiftByCents(e2, 0.01f)
         val script = List(6) { PitchResult(e2, 0.95f) } +
-            List(6) { PitchResult(e2 / 2f, 0.72f) } +
+            List(2) { PitchResult(e2 / 2f, 0.89f) } +
             PitchResult(marker, 0.95f)
         val engine = TunerEngine(FakeAudioSource(script.size), ScriptedPitchDetector(script))
 
@@ -131,6 +131,29 @@ class TunerEngineTest {
             abs(state.centsOffset) < 10f
         )
         assertEquals("E", state.noteName)
+    }
+
+    @Test
+    fun `sustained pitch change is followed after confirmation`() {
+        // A real note change sustains: after 3 consistent frames at the new
+        // pitch the engine must follow it (unlike 1-2 frame error bursts).
+        val a2 = 110f
+        val marker = shiftByCents(a2, 0.01f)
+        val script = List(6) { PitchResult(e2, 0.95f) } +
+            List(8) { PitchResult(a2, 0.95f) } +
+            PitchResult(marker, 0.95f)
+        val engine = TunerEngine(FakeAudioSource(script.size), ScriptedPitchDetector(script))
+
+        engine.startListening()
+        val state = runBlocking {
+            withTimeout(5_000) { engine.state.first { it.frequencyHz == marker } }
+        }
+
+        assertEquals("A", state.noteName)
+        assertTrue(
+            "engine must track the confirmed new pitch, was ${state.centsOffset}",
+            abs(state.centsOffset) < 10f
+        )
     }
 
     @Test

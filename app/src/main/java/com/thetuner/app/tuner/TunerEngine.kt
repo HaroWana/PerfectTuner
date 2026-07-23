@@ -36,6 +36,8 @@ class TunerEngine @Inject constructor(
     private var smoothedCents = 0f
     private var lastTargetFreq = 0f
     private var lastAcceptedFreq = 0f
+    private var pendingJumpFreq = 0f
+    private var pendingJumpCount = 0
 
     // @Volatile: written from main thread via setTuning/setA4Reference,
     // read from Dispatchers.Default in processFrame. Volatile ensures visibility.
@@ -45,10 +47,8 @@ class TunerEngine @Inject constructor(
     private companion object {
         const val SILENCE_DBFS_THRESHOLD = -70f
         const val CONFIDENCE_THRESHOLD = 0.70f
-        // Mid-confidence detections (0.70-0.80) are prone to YIN subharmonic
-        // errors; accept them only if they continue the last accepted pitch.
-        const val TRUSTED_CONFIDENCE_THRESHOLD = 0.80f
         const val CONTINUITY_CENTS = 150f
+        const val JUMP_CONFIRM_FRAMES = 3
         const val SILENCE_FRAME_COUNT = 15
         const val IN_TUNE_TOLERANCE = 5.0f
         const val EMA_ALPHA = 0.2f
@@ -61,6 +61,8 @@ class TunerEngine @Inject constructor(
         smoothedCents = 0f
         lastTargetFreq = 0f
         lastAcceptedFreq = 0f
+        pendingJumpFreq = 0f
+        pendingJumpCount = 0
         medianCount = 0
         // Update state immediately so UI reflects change even during silence
         _state.value = _state.value.copy(activeTuningId = tuning.id)
@@ -78,6 +80,8 @@ class TunerEngine @Inject constructor(
         smoothedCents = 0f
         lastTargetFreq = 0f
         lastAcceptedFreq = 0f
+        pendingJumpFreq = 0f
+        pendingJumpCount = 0
         stringDetector.reset()
 
         val newScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -109,6 +113,8 @@ class TunerEngine @Inject constructor(
         smoothedCents = 0f
         lastTargetFreq = 0f
         lastAcceptedFreq = 0f
+        pendingJumpFreq = 0f
+        pendingJumpCount = 0
         stringDetector.reset()
         _state.value = TunerState(
             isListening = false,
@@ -137,20 +143,34 @@ class TunerEngine @Inject constructor(
             return
         }
 
-        // Continuity gate: an octave-down burst at mid confidence would drag the
-        // EMA toward -1200c (the display saturates left, then crawls back).
-        // Treat such frames as dropouts; the trusted tier passes unconditionally
-        // so fresh plucks and real string changes still lock on instantly.
-        if (result.confidence < TRUSTED_CONFIDENCE_THRESHOLD) {
-            val continuityOk = lastAcceptedFreq > 0f &&
-                abs(NoteMapper.centsBetween(result.frequencyHz, lastAcceptedFreq)) <= CONTINUITY_CENTS
-            if (!continuityOk) {
+        // Jump confirmation: YIN subharmonic errors (f/2 at 0.87-0.92 confidence,
+        // observed on device) arrive in 1-2 frame bursts and would drag the EMA
+        // toward -1200c. Any pitch jump beyond CONTINUITY_CENTS — at any
+        // confidence — must sustain for JUMP_CONFIRM_FRAMES consecutive frames
+        // before it is followed; real note changes pass in ~70 ms.
+        val freq = result.frequencyHz
+        if (lastAcceptedFreq > 0f &&
+            abs(NoteMapper.centsBetween(freq, lastAcceptedFreq)) > CONTINUITY_CENTS
+        ) {
+            if (pendingJumpFreq > 0f &&
+                abs(NoteMapper.centsBetween(freq, pendingJumpFreq)) <= CONTINUITY_CENTS
+            ) {
+                pendingJumpCount++
+            } else {
+                pendingJumpFreq = freq
+                pendingJumpCount = 1
+            }
+            if (pendingJumpCount < JUMP_CONFIRM_FRAMES) {
                 silenceCounter++
                 if (silenceCounter >= SILENCE_FRAME_COUNT) emitSilence()
                 return
             }
+            // Confirmed: drop stale old-pitch entries from the median window
+            medianCount = 0
         }
-        lastAcceptedFreq = result.frequencyHz
+        pendingJumpFreq = 0f
+        pendingJumpCount = 0
+        lastAcceptedFreq = freq
 
         silenceCounter = 0
 
@@ -219,6 +239,8 @@ class TunerEngine @Inject constructor(
         smoothedCents = 0f
         lastTargetFreq = 0f
         lastAcceptedFreq = 0f
+        pendingJumpFreq = 0f
+        pendingJumpCount = 0
         stringDetector.reset()
     }
 
