@@ -82,6 +82,8 @@ fun PitchTrace(
         val nowMs = frameTick.longValue
         val inset = 24.dp.toPx()
         val centerX = size.width / 2f
+        // Pen rides a quarter down the panel so the freshest strokes stay visible
+        val penY = size.height * PEN_ROW_FRACTION
 
         drawRoundRect(
             color = Color(0xFF1A1A1A),
@@ -144,7 +146,7 @@ fun PitchTrace(
                     val s = samples[i]
                     val cents = s.cents ?: continue
                     val x = TraceGeometry.centsToX(cents, size.width, inset)
-                    val y = TraceGeometry.timeToY(s.timeMs, nowMs, size.height)
+                    val y = TraceGeometry.timeToY(s.timeMs, nowMs, size.height, penY)
                     if (first) {
                         linePath.moveTo(x, y)
                         if (range.inTune) fillPath.moveTo(x, y)
@@ -157,8 +159,8 @@ fun PitchTrace(
 
                 if (range.inTune) {
                     // Soft fill between the in-tune trace and the center line
-                    val yLast = TraceGeometry.timeToY(samples[range.endExclusive - 1].timeMs, nowMs, size.height)
-                    val yFirst = TraceGeometry.timeToY(samples[range.start].timeMs, nowMs, size.height)
+                    val yLast = TraceGeometry.timeToY(samples[range.endExclusive - 1].timeMs, nowMs, size.height, penY)
+                    val yFirst = TraceGeometry.timeToY(samples[range.start].timeMs, nowMs, size.height, penY)
                     fillPath.lineTo(centerX, yLast)
                     fillPath.lineTo(centerX, yFirst)
                     fillPath.close()
@@ -180,7 +182,7 @@ fun PitchTrace(
                         radius = 5.dp.toPx(),
                         center = Offset(
                             TraceGeometry.centsToX(latest.cents ?: 0f, size.width, inset),
-                            TraceGeometry.timeToY(latest.timeMs, nowMs, size.height)
+                            TraceGeometry.timeToY(latest.timeMs, nowMs, size.height, penY)
                         )
                     )
                 }
@@ -206,6 +208,8 @@ private const val PEN_FADE_MS = 300L
 
 // A gap this long means frames stopped (app backgrounded) — restart the trace
 private const val FRAME_GAP_RESET_MS = 500L
+
+private const val PEN_ROW_FRACTION = 0.25f
 
 private val GRID_CENTS = floatArrayOf(-25f, 25f)
 private val TOLERANCE_MARKER_CENTS = floatArrayOf(-5f, 5f)

@@ -46,6 +46,23 @@ class TraceGeometryTest {
         assertEquals(200f, TraceGeometry.timeToY(7_500L, 10_000L, 400f), 0.001f)
     }
 
+    // --- timeToY with a lowered pen row: window spans [penY, height] ---
+
+    @Test
+    fun `current time maps to the pen row`() {
+        assertEquals(100f, TraceGeometry.timeToY(10_000L, 10_000L, 400f, penY = 100f), 0.001f)
+    }
+
+    @Test
+    fun `window-old sample still maps to bottom with pen row offset`() {
+        assertEquals(400f, TraceGeometry.timeToY(5_000L, 10_000L, 400f, penY = 100f), 0.001f)
+    }
+
+    @Test
+    fun `half-window-old sample maps to middle of pen-to-bottom span`() {
+        assertEquals(250f, TraceGeometry.timeToY(7_500L, 10_000L, 400f, penY = 100f), 0.001f)
+    }
+
     private fun sample(
         timeMs: Long,
         cents: Float? = 0f,

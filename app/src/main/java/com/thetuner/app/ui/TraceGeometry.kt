@@ -23,8 +23,8 @@ object TraceGeometry {
         return width / 2f + (clamped / CENTS_RANGE) * (width / 2f - inset)
     }
 
-    fun timeToY(timeMs: Long, nowMs: Long, height: Float): Float {
-        return (nowMs - timeMs).toFloat() / WINDOW_MS * height
+    fun timeToY(timeMs: Long, nowMs: Long, height: Float, penY: Float = 0f): Float {
+        return penY + (nowMs - timeMs).toFloat() / WINDOW_MS * (height - penY)
     }
 
     fun segment(samples: List<TraceSample>): List<SegmentRange> {
