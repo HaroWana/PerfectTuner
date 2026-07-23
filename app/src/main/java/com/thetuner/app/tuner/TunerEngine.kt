@@ -42,8 +42,8 @@ class TunerEngine @Inject constructor(
     @Volatile private var a4Reference: Float = 440f
 
     private companion object {
-        const val SILENCE_DBFS_THRESHOLD = -60f
-        const val CONFIDENCE_THRESHOLD = 0.75f
+        const val SILENCE_DBFS_THRESHOLD = -70f
+        const val CONFIDENCE_THRESHOLD = 0.70f
         const val SILENCE_FRAME_COUNT = 10
         const val IN_TUNE_TOLERANCE = 5.0f
         const val EMA_ALPHA = 0.2f

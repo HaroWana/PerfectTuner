@@ -93,11 +93,11 @@ class TunerEngineTest {
 
     @Test
     fun `quiet decaying signal is still tracked`() {
-        // 0.002 amplitude ~= -54 dBFS: the tail of a decaying pluck. It must
+        // 0.0006 amplitude ~= -64 dBFS: deep into a pluck's decay. It must
         // pass the silence gate and keep producing pitch states.
         val frequencies = List(11) { e2 } + shiftByCents(e2, 0.01f)
 
-        val state = runFrames(engineFor(frequencies, amplitude = 0.002f), frequencies)
+        val state = runFrames(engineFor(frequencies, amplitude = 0.0006f), frequencies)
 
         assertEquals("E", state.noteName)
         assertFalse("quiet frames must not be treated as silence", state.isSilent)
