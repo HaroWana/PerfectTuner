@@ -100,6 +100,29 @@ class PenTrackerTest {
     }
 
     @Test
+    fun `unknown string after a hold does not break the line`() {
+        // After brief silence the string detector needs ~3 frames to re-lock,
+        // reporting null. Same-string tuning must not draw a pen lift there.
+        val tracker = PenTracker()
+        tracker.samplesFor(1L, isSilent = false, cents = 7f, inTune = false, stringIndex = 3)
+        tracker.samplesFor(2L, isSilent = true, cents = 0f, inTune = false, stringIndex = null)
+        assertEquals(
+            listOf(TraceSample(3L, cents = 6f, inTune = false, stringIndex = 3)),
+            tracker.samplesFor(3L, isSilent = false, cents = 5f, inTune = false, stringIndex = null, smoothingAlpha = 0.5f)
+        )
+    }
+
+    @Test
+    fun `unknown string while actively playing keeps the held string`() {
+        val tracker = PenTracker()
+        tracker.samplesFor(1L, isSilent = false, cents = 7f, inTune = false, stringIndex = 3)
+        assertEquals(
+            listOf(TraceSample(2L, cents = 9f, inTune = false, stringIndex = 3)),
+            tracker.samplesFor(2L, isSilent = false, cents = 9f, inTune = false, stringIndex = null)
+        )
+    }
+
+    @Test
     fun `reset clears the held value`() {
         val tracker = PenTracker()
         tracker.samplesFor(1L, isSilent = false, cents = 7f, inTune = false, stringIndex = 3)

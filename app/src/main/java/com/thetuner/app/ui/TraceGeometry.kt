@@ -43,20 +43,23 @@ class PenTracker {
                 else TraceSample(timeMs, null, false, null)
             )
         }
-        val breakLine = holding && stringIndex != heldStringIndex
+        // An unknown string (detector still re-locking after silence) continues
+        // the held string — only a confirmed different string breaks the line
+        val effectiveString = stringIndex ?: heldStringIndex
+        val breakLine = holding && effectiveString != heldStringIndex
         val previous = heldCents
         // Snap on the first note and on string changes — gliding across strings
         // would draw a misleading sweep. Glide toward the live pitch otherwise.
-        val smoothed = if (previous == null || stringIndex != heldStringIndex) {
+        val smoothed = if (previous == null || effectiveString != heldStringIndex) {
             cents
         } else {
             previous + (cents - previous) * smoothingAlpha
         }
         heldCents = smoothed
         heldInTune = inTune
-        heldStringIndex = stringIndex
+        heldStringIndex = effectiveString
         holding = false
-        val sample = TraceSample(timeMs, smoothed, inTune, stringIndex)
+        val sample = TraceSample(timeMs, smoothed, inTune, effectiveString)
         return if (breakLine) {
             listOf(TraceSample(timeMs, null, false, null), sample)
         } else {
