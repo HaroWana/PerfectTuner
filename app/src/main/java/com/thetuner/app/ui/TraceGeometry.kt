@@ -14,6 +14,55 @@ data class SegmentRange(
     val stringIndex: Int?
 )
 
+/**
+ * Decides what the pen writes each frame. During silence the pen holds its
+ * last value (a straight line) instead of lifting; it lifts only before the
+ * first note and to break the line when a different string starts after a
+ * held stretch.
+ */
+class PenTracker {
+
+    private var heldCents: Float? = null
+    private var heldInTune = false
+    private var heldStringIndex: Int? = null
+    private var holding = false
+
+    fun samplesFor(
+        timeMs: Long,
+        isSilent: Boolean,
+        cents: Float,
+        inTune: Boolean,
+        stringIndex: Int?
+    ): List<TraceSample> {
+        if (isSilent) {
+            val held = heldCents
+            holding = held != null
+            return listOf(
+                if (held != null) TraceSample(timeMs, held, heldInTune, heldStringIndex)
+                else TraceSample(timeMs, null, false, null)
+            )
+        }
+        val breakLine = holding && stringIndex != heldStringIndex
+        heldCents = cents
+        heldInTune = inTune
+        heldStringIndex = stringIndex
+        holding = false
+        val sample = TraceSample(timeMs, cents, inTune, stringIndex)
+        return if (breakLine) {
+            listOf(TraceSample(timeMs, null, false, null), sample)
+        } else {
+            listOf(sample)
+        }
+    }
+
+    fun reset() {
+        heldCents = null
+        heldInTune = false
+        heldStringIndex = null
+        holding = false
+    }
+}
+
 object TraceGeometry {
     const val WINDOW_MS = 5000L
     const val CENTS_RANGE = 50f

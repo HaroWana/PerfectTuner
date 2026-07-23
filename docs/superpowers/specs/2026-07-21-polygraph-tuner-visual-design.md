@@ -50,9 +50,11 @@ nearest-semitone cents (existing engine behavior). No engine changes.
   green fill between the trace line and the center line — green streaks mark
   in-tune stretches in the history. The detected string line and its label also
   turn green.
-- **Silence (`TunerState.isSilent`):** the pen lifts — paper keeps scrolling,
-  the trace shows gaps for silent stretches, old trace scrolls off naturally.
-  Strings return to dim. The panel, center line, and gridlines stay visible.
+- **Silence (`TunerState.isSilent`):** the pen holds its last cents value,
+  drawing a straight line while the paper keeps scrolling (amended after
+  on-device testing — originally the pen lifted). It lifts only before the
+  first note and to break the line when a different string starts after a
+  held stretch. Strings return to dim; panel chrome stays visible.
 
 ### Scroll
 Visible history window: **5 seconds** (`WINDOW_MS = 5000`). Scroll speed is

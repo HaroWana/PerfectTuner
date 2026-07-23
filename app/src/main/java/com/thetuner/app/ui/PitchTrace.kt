@@ -27,8 +27,9 @@ import kotlinx.coroutines.isActive
  * Polygraph-style pitch trace: pen at the top, paper scrolls downward.
  * X axis is cents (left = flat, right = sharp, clamped to ±CENTS_RANGE);
  * the dashed center line is the in-tune target. Segments captured while
- * in tune render green with a soft fill toward the center line; silence
- * lifts the pen, leaving gaps while the paper keeps scrolling.
+ * in tune render green with a soft fill toward the center line. During
+ * silence the pen holds its last value in a straight line; it lifts only
+ * before the first note and when a different string starts.
  */
 @Composable
 fun PitchTrace(
@@ -57,20 +58,23 @@ fun PitchTrace(
     val axisLayouts = remember(textMeasurer) { AXIS_LABELS.map { (cents, text) -> cents to textMeasurer.measure(text, AXIS_LABEL_STYLE) } }
 
     LaunchedEffect(Unit) {
+        val penTracker = PenTracker()
         var prevFrameTimeMs = 0L
         while (isActive) {
             withInfiniteAnimationFrameMillis { frameTimeMs ->
                 if (prevFrameTimeMs != 0L && frameTimeMs - prevFrameTimeMs > FRAME_GAP_RESET_MS) {
                     samples.clear()
+                    penTracker.reset()
                 }
-                samples.addLast(
-                    TraceSample(
-                        timeMs = frameTimeMs,
-                        cents = if (currentSilent) null else currentCents,
-                        inTune = currentInTune,
-                        stringIndex = currentString
-                    )
-                )
+                for (sample in penTracker.samplesFor(
+                    timeMs = frameTimeMs,
+                    isSilent = currentSilent,
+                    cents = currentCents,
+                    inTune = currentInTune,
+                    stringIndex = currentString
+                )) {
+                    samples.addLast(sample)
+                }
                 TraceGeometry.evictExpired(samples, frameTimeMs)
                 frameTick.longValue = frameTimeMs
                 prevFrameTimeMs = frameTimeMs
