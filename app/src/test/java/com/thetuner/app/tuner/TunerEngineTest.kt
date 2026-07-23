@@ -17,10 +17,12 @@ import kotlin.math.pow
 
 class TunerEngineTest {
 
-    private class FakeAudioSource(private val frameCount: Int) : AudioSource {
-        // 0.1 amplitude -> -20 dBFS, well above the -50 dBFS silence gate
+    private class FakeAudioSource(
+        private val frameCount: Int,
+        private val amplitude: Float = 0.1f // -> -20 dBFS, well above the silence gate
+    ) : AudioSource {
         override fun frames(): Flow<FloatArray> = flow {
-            repeat(frameCount) { emit(FloatArray(1024) { 0.1f }) }
+            repeat(frameCount) { emit(FloatArray(1024) { amplitude }) }
         }
 
         override fun start() {}
@@ -50,8 +52,8 @@ class TunerEngineTest {
         }
     }
 
-    private fun engineFor(frequencies: List<Float>): TunerEngine =
-        TunerEngine(FakeAudioSource(frequencies.size), ScriptedPitchDetector(frequencies))
+    private fun engineFor(frequencies: List<Float>, amplitude: Float = 0.1f): TunerEngine =
+        TunerEngine(FakeAudioSource(frequencies.size, amplitude), ScriptedPitchDetector(frequencies))
 
     private val e2 = 440f * 2f.pow((40 - 69) / 12f) // 82.407 Hz, string 6 in Standard
 
@@ -87,6 +89,18 @@ class TunerEngineTest {
             abs(state.centsOffset) < 5f
         )
         assertTrue(state.isInTune)
+    }
+
+    @Test
+    fun `quiet decaying signal is still tracked`() {
+        // 0.002 amplitude ~= -54 dBFS: the tail of a decaying pluck. It must
+        // pass the silence gate and keep producing pitch states.
+        val frequencies = List(11) { e2 } + shiftByCents(e2, 0.01f)
+
+        val state = runFrames(engineFor(frequencies, amplitude = 0.002f), frequencies)
+
+        assertEquals("E", state.noteName)
+        assertFalse("quiet frames must not be treated as silence", state.isSilent)
     }
 
     @Test
