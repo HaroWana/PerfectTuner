@@ -122,7 +122,7 @@ fun SettingsScreen(
                     color = Color.White
                 )
                 Text(
-                    text = "Display \u00b15\u00a2 zone indicators on the strobe",
+                    text = "Display \u00b15\u00a2 zone indicators on the pitch trace",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.5f)
                 )

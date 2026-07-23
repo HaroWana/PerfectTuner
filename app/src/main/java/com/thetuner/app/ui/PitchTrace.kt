@@ -39,6 +39,7 @@ fun PitchTrace(
     stringColors: List<Color>,
     inTuneColor: Color,
     neutralColor: Color,
+    showToleranceMarkers: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val currentCents by rememberUpdatedState(centsOffset)
@@ -96,6 +97,19 @@ fun PitchTrace(
                 end = Offset(x, size.height),
                 strokeWidth = 1f
             )
+        }
+
+        // ±5c in-tune zone boundaries (Settings > "Show tolerance markers")
+        if (showToleranceMarkers) {
+            for (cents in TOLERANCE_MARKER_CENTS) {
+                val x = TraceGeometry.centsToX(cents, size.width, inset)
+                drawLine(
+                    color = inTuneColor.copy(alpha = 0.3f),
+                    start = Offset(x, 0f),
+                    end = Offset(x, size.height),
+                    strokeWidth = 1f
+                )
+            }
         }
 
         // Dashed in-tune center line
@@ -194,5 +208,6 @@ private const val PEN_FADE_MS = 300L
 private const val FRAME_GAP_RESET_MS = 500L
 
 private val GRID_CENTS = floatArrayOf(-25f, 25f)
+private val TOLERANCE_MARKER_CENTS = floatArrayOf(-5f, 5f)
 private val AXIS_LABEL_STYLE = TextStyle(color = Color(0xFF666666), fontSize = 10.sp)
 private val AXIS_LABELS = listOf(-25f to "-25", 0f to "0", 25f to "+25")

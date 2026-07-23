@@ -48,6 +48,7 @@ fun TunerScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val activeTuningId by viewModel.activeTuningId.collectAsStateWithLifecycle()
+    val showToleranceMarkers by viewModel.showToleranceMarkers.collectAsStateWithLifecycle()
 
     LifecycleResumeEffect(Unit) {
         viewModel.startListening()
@@ -112,6 +113,7 @@ fun TunerScreen(
                 stringColors = StringColors.palette,
                 inTuneColor = StringColors.inTuneGreen,
                 neutralColor = StringColors.neutralColor,
+                showToleranceMarkers = showToleranceMarkers,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(0.55f)
