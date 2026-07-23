@@ -154,17 +154,22 @@ fun PitchTrace(
                 drawPath(linePath, color = color, style = Stroke(width = 3.dp.toPx()))
             }
 
-            // Pen head on the newest drawable sample
+            // Pen head on the newest drawable sample; fades out after the pen lifts
             val latest = samples.lastOrNull { it.cents != null }
-            if (latest != null && nowMs - latest.timeMs < PEN_FADE_MS) {
-                drawCircle(
-                    color = segmentColor(latest.inTune, latest.stringIndex, stringColors, inTuneColor, neutralColor),
-                    radius = 5.dp.toPx(),
-                    center = Offset(
-                        TraceGeometry.centsToX(latest.cents ?: 0f, size.width, inset),
-                        TraceGeometry.timeToY(latest.timeMs, nowMs, size.height)
+            if (latest != null) {
+                val age = nowMs - latest.timeMs
+                if (age < PEN_FADE_MS) {
+                    val fade = 1f - age.toFloat() / PEN_FADE_MS
+                    val color = segmentColor(latest.inTune, latest.stringIndex, stringColors, inTuneColor, neutralColor)
+                    drawCircle(
+                        color = color.copy(alpha = color.alpha * fade),
+                        radius = 5.dp.toPx(),
+                        center = Offset(
+                            TraceGeometry.centsToX(latest.cents ?: 0f, size.width, inset),
+                            TraceGeometry.timeToY(latest.timeMs, nowMs, size.height)
+                        )
                     )
-                )
+                }
             }
         }
     }
