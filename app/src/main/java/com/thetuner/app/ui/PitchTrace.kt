@@ -141,7 +141,11 @@ fun PitchTrace(
 
                 linePath.reset()
                 if (range.inTune) fillPath.reset()
+                // Midpoint quadratic smoothing: each segment curves through the
+                // midpoint using the previous point as control — no hard joints
                 var first = true
+                var prevX = 0f
+                var prevY = 0f
                 for (i in range.start until range.endExclusive) {
                     val s = samples[i]
                     val cents = s.cents ?: continue
@@ -152,9 +156,17 @@ fun PitchTrace(
                         if (range.inTune) fillPath.moveTo(x, y)
                         first = false
                     } else {
-                        linePath.lineTo(x, y)
-                        if (range.inTune) fillPath.lineTo(x, y)
+                        val midX = (prevX + x) / 2f
+                        val midY = (prevY + y) / 2f
+                        linePath.quadraticTo(prevX, prevY, midX, midY)
+                        if (range.inTune) fillPath.quadraticTo(prevX, prevY, midX, midY)
                     }
+                    prevX = x
+                    prevY = y
+                }
+                if (!first) {
+                    linePath.lineTo(prevX, prevY)
+                    if (range.inTune) fillPath.lineTo(prevX, prevY)
                 }
 
                 if (range.inTune) {
