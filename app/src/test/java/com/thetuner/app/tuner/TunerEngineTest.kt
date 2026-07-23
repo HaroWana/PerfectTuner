@@ -33,12 +33,15 @@ class TunerEngineTest {
         override fun stop() {}
     }
 
-    private class ScriptedPitchDetector(private val frequencies: List<Float>) : PitchDetector {
+    private class ScriptedPitchDetector(private val results: List<PitchResult>) : PitchDetector {
+        constructor(frequencies: List<Float>, confidence: Float = 0.95f) :
+            this(frequencies.map { PitchResult(frequencyHz = it, confidence = confidence) })
+
         private var index = 0
         override fun detect(samples: FloatArray): PitchResult? {
-            val freq = frequencies[index.coerceAtMost(frequencies.size - 1)]
+            val result = results[index.coerceAtMost(results.size - 1)]
             index++
-            return PitchResult(frequencyHz = freq, confidence = 0.95f)
+            return result
         }
     }
 
@@ -105,6 +108,29 @@ class TunerEngineTest {
 
         assertEquals("E", state.noteName)
         assertFalse("quiet frames must not be treated as silence", state.isSilent)
+    }
+
+    @Test
+    fun `mid-confidence octave-down burst does not drag the cents offset`() {
+        // YIN subharmonic error: while tracking E2, a burst of f/2 estimates at
+        // 0.72 confidence must be rejected as detection noise, not fed to the
+        // EMA (which would slam the display toward -1200c).
+        val marker = shiftByCents(e2, 0.01f)
+        val script = List(6) { PitchResult(e2, 0.95f) } +
+            List(6) { PitchResult(e2 / 2f, 0.72f) } +
+            PitchResult(marker, 0.95f)
+        val engine = TunerEngine(FakeAudioSource(script.size), ScriptedPitchDetector(script))
+
+        engine.startListening()
+        val state = runBlocking {
+            withTimeout(5_000) { engine.state.first { it.frequencyHz == marker } }
+        }
+
+        assertTrue(
+            "octave-error burst must not drag centsOffset, was ${state.centsOffset}",
+            abs(state.centsOffset) < 10f
+        )
+        assertEquals("E", state.noteName)
     }
 
     @Test

@@ -35,6 +35,7 @@ class TunerEngine @Inject constructor(
     private val stringDetector = StringDetector()
     private var smoothedCents = 0f
     private var lastTargetFreq = 0f
+    private var lastAcceptedFreq = 0f
 
     // @Volatile: written from main thread via setTuning/setA4Reference,
     // read from Dispatchers.Default in processFrame. Volatile ensures visibility.
@@ -44,6 +45,10 @@ class TunerEngine @Inject constructor(
     private companion object {
         const val SILENCE_DBFS_THRESHOLD = -70f
         const val CONFIDENCE_THRESHOLD = 0.70f
+        // Mid-confidence detections (0.70-0.80) are prone to YIN subharmonic
+        // errors; accept them only if they continue the last accepted pitch.
+        const val TRUSTED_CONFIDENCE_THRESHOLD = 0.80f
+        const val CONTINUITY_CENTS = 150f
         const val SILENCE_FRAME_COUNT = 15
         const val IN_TUNE_TOLERANCE = 5.0f
         const val EMA_ALPHA = 0.2f
@@ -55,6 +60,7 @@ class TunerEngine @Inject constructor(
         stringDetector.reset()
         smoothedCents = 0f
         lastTargetFreq = 0f
+        lastAcceptedFreq = 0f
         medianCount = 0
         // Update state immediately so UI reflects change even during silence
         _state.value = _state.value.copy(activeTuningId = tuning.id)
@@ -71,6 +77,7 @@ class TunerEngine @Inject constructor(
         silenceCounter = 0
         smoothedCents = 0f
         lastTargetFreq = 0f
+        lastAcceptedFreq = 0f
         stringDetector.reset()
 
         val newScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -101,6 +108,7 @@ class TunerEngine @Inject constructor(
         silenceCounter = 0
         smoothedCents = 0f
         lastTargetFreq = 0f
+        lastAcceptedFreq = 0f
         stringDetector.reset()
         _state.value = TunerState(
             isListening = false,
@@ -128,6 +136,21 @@ class TunerEngine @Inject constructor(
             if (silenceCounter >= SILENCE_FRAME_COUNT) emitSilence()
             return
         }
+
+        // Continuity gate: an octave-down burst at mid confidence would drag the
+        // EMA toward -1200c (the display saturates left, then crawls back).
+        // Treat such frames as dropouts; the trusted tier passes unconditionally
+        // so fresh plucks and real string changes still lock on instantly.
+        if (result.confidence < TRUSTED_CONFIDENCE_THRESHOLD) {
+            val continuityOk = lastAcceptedFreq > 0f &&
+                abs(NoteMapper.centsBetween(result.frequencyHz, lastAcceptedFreq)) <= CONTINUITY_CENTS
+            if (!continuityOk) {
+                silenceCounter++
+                if (silenceCounter >= SILENCE_FRAME_COUNT) emitSilence()
+                return
+            }
+        }
+        lastAcceptedFreq = result.frequencyHz
 
         silenceCounter = 0
 
@@ -195,6 +218,7 @@ class TunerEngine @Inject constructor(
         medianCount = 0
         smoothedCents = 0f
         lastTargetFreq = 0f
+        lastAcceptedFreq = 0f
         stringDetector.reset()
     }
 
