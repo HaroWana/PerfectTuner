@@ -56,8 +56,12 @@ fun PitchTrace(
     val axisLayouts = remember(textMeasurer) { AXIS_LABELS.map { (cents, text) -> cents to textMeasurer.measure(text, AXIS_LABEL_STYLE) } }
 
     LaunchedEffect(Unit) {
+        var prevFrameTimeMs = 0L
         while (isActive) {
             withInfiniteAnimationFrameMillis { frameTimeMs ->
+                if (prevFrameTimeMs != 0L && frameTimeMs - prevFrameTimeMs > FRAME_GAP_RESET_MS) {
+                    samples.clear()
+                }
                 samples.addLast(
                     TraceSample(
                         timeMs = frameTimeMs,
@@ -68,6 +72,7 @@ fun PitchTrace(
                 )
                 TraceGeometry.evictExpired(samples, frameTimeMs)
                 frameTick.longValue = frameTimeMs
+                prevFrameTimeMs = frameTimeMs
             }
         }
     }
@@ -119,7 +124,7 @@ fun PitchTrace(
                 val color = segmentColor(range.inTune, range.stringIndex, stringColors, inTuneColor, neutralColor)
 
                 linePath.reset()
-                fillPath.reset()
+                if (range.inTune) fillPath.reset()
                 var first = true
                 for (i in range.start until range.endExclusive) {
                     val s = samples[i]
@@ -128,11 +133,11 @@ fun PitchTrace(
                     val y = TraceGeometry.timeToY(s.timeMs, nowMs, size.height)
                     if (first) {
                         linePath.moveTo(x, y)
-                        fillPath.moveTo(x, y)
+                        if (range.inTune) fillPath.moveTo(x, y)
                         first = false
                     } else {
                         linePath.lineTo(x, y)
-                        fillPath.lineTo(x, y)
+                        if (range.inTune) fillPath.lineTo(x, y)
                     }
                 }
 
@@ -179,6 +184,9 @@ private fun segmentColor(
 
 // Pen dot lingers briefly after the pen lifts, then disappears
 private const val PEN_FADE_MS = 300L
+
+// A gap this long means frames stopped (app backgrounded) — restart the trace
+private const val FRAME_GAP_RESET_MS = 500L
 
 private val GRID_CENTS = floatArrayOf(-25f, 25f)
 private val AXIS_LABEL_STYLE = TextStyle(color = Color(0xFF666666), fontSize = 10.sp)
