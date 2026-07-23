@@ -8,8 +8,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
@@ -18,11 +20,13 @@ import kotlin.math.pow
 class TunerEngineTest {
 
     private class FakeAudioSource(
-        private val frameCount: Int,
-        private val amplitude: Float = 0.1f // -> -20 dBFS, well above the silence gate
+        private val amplitudes: List<Float>
     ) : AudioSource {
+        // 0.1 amplitude -> -20 dBFS, well above the silence gate
+        constructor(frameCount: Int, amplitude: Float = 0.1f) : this(List(frameCount) { amplitude })
+
         override fun frames(): Flow<FloatArray> = flow {
-            repeat(frameCount) { emit(FloatArray(1024) { amplitude }) }
+            for (amplitude in amplitudes) emit(FloatArray(1024) { amplitude })
         }
 
         override fun start() {}
@@ -101,6 +105,24 @@ class TunerEngineTest {
 
         assertEquals("E", state.noteName)
         assertFalse("quiet frames must not be treated as silence", state.isSilent)
+    }
+
+    @Test
+    fun `brief detection dropouts do not read as silence`() {
+        // 5 tracked frames, then 12 sub-gate frames (~0.28 s at the audio frame
+        // rate): a brief dropout in a decaying note must not declare silence.
+        val marker = shiftByCents(e2, 0.02f)
+        val frequencies = List(4) { e2 } + marker
+        val amplitudes = List(5) { 0.1f } + List(12) { 0.0001f } // -80 dBFS, below the gate
+        val engine = TunerEngine(FakeAudioSource(amplitudes), ScriptedPitchDetector(frequencies))
+
+        engine.startListening()
+        val silentState = runBlocking {
+            withTimeout(5_000) { engine.state.first { it.frequencyHz == marker } }
+            withTimeoutOrNull(500) { engine.state.first { it.isSilent } }
+        }
+
+        assertNull("12 gated frames must not flip the state to silent", silentState)
     }
 
     @Test
