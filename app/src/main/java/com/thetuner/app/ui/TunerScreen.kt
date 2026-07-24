@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.thetuner.app.tuner.STANDARD_TUNING
 import com.thetuner.app.tuner.TuningLibrary
 import com.thetuner.app.ui.theme.StringColors
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,19 +87,19 @@ fun TunerScreen(
     val labelTuning = if (activeTuning.strings.isEmpty()) STANDARD_TUNING else activeTuning
     val stringLabels = remember(labelTuning.id) { labelTuning.strings.map { it.noteName } }
 
-    val fabLabel = when (activeTuning.id) {
-        "chromatic" -> "Chr"
-        "standard" -> "Std"
-        "eb_standard" -> "Eb"
-        "d_standard" -> "D Std"
-        "drop_d" -> "Drop D"
-        "drop_c" -> "Drop C"
-        else -> activeTuning.name.take(6)
-    }
+    val fabLabel = activeTuning.shortName ?: activeTuning.name.take(6)
 
     var showBottomSheet by remember { mutableStateOf(false) }
     // skipPartiallyExpanded = true: prevents sheet dismissal conflict when scrolling LazyColumn
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    // Play the slide-out animation before removing the sheet from composition
+    val dismissSheet: (afterHide: () -> Unit) -> Unit = { afterHide ->
+        scope.launch { sheetState.hide() }.invokeOnCompletion {
+            showBottomSheet = false
+            afterHide()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -171,15 +173,13 @@ fun TunerScreen(
                     hasPurchased = hasPurchased,
                     onTuningSelected = { id ->
                         viewModel.selectTuning(id)
-                        showBottomSheet = false
+                        dismissSheet {}
                     },
                     onLockedTuningTap = { tuningId ->
-                        showBottomSheet = false
-                        onLockedTuningTap(tuningId)
+                        dismissSheet { onLockedTuningTap(tuningId) }
                     },
                     onNavigateToSettings = {
-                        showBottomSheet = false
-                        onNavigateToSettings()
+                        dismissSheet { onNavigateToSettings() }
                     }
                 )
             }

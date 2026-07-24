@@ -135,8 +135,10 @@ fun TuningRow(
     onSelect: () -> Unit,
     onLockedTap: () -> Unit
 ) {
-    val isChromatic = tuning.id == "chromatic"
-    val isUnlocked = isFree || isChromatic || hasPurchased
+    // Entitlement lives in TuningLibrary (chromatic is in FREE_TUNING_IDS);
+    // "chromatic" here is only a display concern (no note bubbles)
+    val isChromatic = tuning.strings.isEmpty()
+    val isUnlocked = isFree || hasPurchased
     val rowAlpha = if (isUnlocked) 1f else 0.45f
 
     Row(
@@ -183,7 +185,7 @@ fun TuningRow(
                     tint = Color.White,
                     modifier = Modifier.size(18.dp)
                 )
-                !isFree && !isChromatic && !hasPurchased -> Icon(
+                !isUnlocked -> Icon(
                     imageVector = Icons.Default.Lock,
                     contentDescription = "Locked",
                     tint = Color.White.copy(alpha = 0.6f),

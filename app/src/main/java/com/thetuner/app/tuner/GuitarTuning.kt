@@ -13,7 +13,8 @@ data class GuitarTuning(
     val id: String,
     val name: String,
     val strings: List<GuitarString>,
-    val description: String = ""
+    val description: String = "",
+    val shortName: String? = null // compact chip label; null falls back to a name prefix
 ) {
     /** Flat-named tunings (Eb Standard, ...) should display flats, not sharps. */
     val usesFlats: Boolean
@@ -29,6 +30,7 @@ data class GuitarTuning(
 val STANDARD_TUNING = GuitarTuning(
     id = "standard",
     name = "Standard",
+    shortName = "Std",
     strings = listOf(
         GuitarString(index = 0, noteName = "E", octave = 2, midiNumber = 40),
         GuitarString(index = 1, noteName = "A", octave = 2, midiNumber = 45),
