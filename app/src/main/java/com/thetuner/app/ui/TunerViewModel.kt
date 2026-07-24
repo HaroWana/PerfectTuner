@@ -12,6 +12,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -25,11 +27,17 @@ class TunerViewModel @Inject constructor(
 
     val uiState: StateFlow<TunerState> = tunerEngine.state
 
+    // Shared by the UI and the engine sync (onEach): one DataStore subscription
+    // each, collected eagerly so the engine stays in sync without a visible UI.
     val a4Reference: StateFlow<Float> = settingsRepository.a4Reference
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 440f)
+        .distinctUntilChanged()
+        .onEach { tunerEngine.setA4Reference(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SettingsRepository.DEFAULT_A4)
 
     val activeTuningId: StateFlow<String> = settingsRepository.activeTuningId
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "standard")
+        .distinctUntilChanged()
+        .onEach { tunerEngine.setTuning(TuningLibrary.findById(it)) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "standard")
 
     val showToleranceMarkers: StateFlow<Boolean> = settingsRepository.showToleranceMarkers
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -49,21 +57,6 @@ class TunerViewModel @Inject constructor(
         billingRepository.queryPurchases()
     }
 
-    init {
-        // Collect persisted tuning ID and keep TunerEngine in sync
-        viewModelScope.launch {
-            settingsRepository.activeTuningId.collect { id ->
-                tunerEngine.setTuning(TuningLibrary.findById(id))
-            }
-        }
-        // Collect persisted A4 reference and keep TunerEngine in sync
-        viewModelScope.launch {
-            settingsRepository.a4Reference.collect { hz ->
-                tunerEngine.setA4Reference(hz)
-            }
-        }
-    }
-
     fun startListening() = tunerEngine.startListening()
     fun stopListening() = tunerEngine.stopListening()
 
@@ -73,14 +66,15 @@ class TunerViewModel @Inject constructor(
         }
     }
 
-    fun setA4Reference(hz: Float) {
+    // Atomic in DataStore: computing from the stateIn-cached value loses taps
+    fun incrementA4() = adjustA4(+1f)
+    fun decrementA4() = adjustA4(-1f)
+
+    private fun adjustA4(deltaHz: Float) {
         viewModelScope.launch {
-            settingsRepository.setA4Reference(hz)
+            settingsRepository.adjustA4Reference(deltaHz)
         }
     }
-
-    fun incrementA4() = setA4Reference(a4Reference.value + 1f)
-    fun decrementA4() = setA4Reference(a4Reference.value - 1f)
 
     fun setShowToleranceMarkers(show: Boolean) {
         viewModelScope.launch {
