@@ -2,6 +2,7 @@ package com.thetuner.app.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -28,6 +29,20 @@ fun StringsOverlay(
     modifier: Modifier = Modifier
 ) {
     val textMeasurer = rememberTextMeasurer()
+    // Measured in composition, not in the draw pass: this composable redraws at
+    // audio-state rate and text layout is expensive. Color is applied at draw
+    // time so re-measurement only happens on label or detected-string changes.
+    val labelLayouts = remember(textMeasurer, stringLabels, detectedStringIndex) {
+        stringLabels.mapIndexed { index, label ->
+            textMeasurer.measure(
+                label,
+                TextStyle(
+                    fontSize = 14.sp,
+                    fontWeight = if (index == detectedStringIndex) FontWeight.Bold else FontWeight.Normal
+                )
+            )
+        }
+    }
 
     Canvas(modifier = modifier) {
         val centerX = size.width / 2f
@@ -36,10 +51,11 @@ fun StringsOverlay(
         val nearSpread = size.width * 0.38f
         val farSpread = size.width * 0.06f
         val dimColor = Color.White.copy(alpha = 0.15f)
+        val halfSpan = (STRING_COUNT - 1) / 2f
 
         for (i in 0 until STRING_COUNT) {
             // Normalize position: -1 to +1
-            val t = (i - 2.5f) / 2.5f
+            val t = (i - halfSpan) / halfSpan
             val nearX = centerX + t * nearSpread
             val farX = centerX + t * farSpread
 
@@ -57,15 +73,10 @@ fun StringsOverlay(
                 strokeWidth = if (isDetected) 3f else 1.5f
             )
 
-            val label = stringLabels.getOrElse(i) { "" }
-            val style = TextStyle(
-                color = if (isDetected) color else Color.White.copy(alpha = 0.35f),
-                fontSize = 14.sp,
-                fontWeight = if (isDetected) FontWeight.Bold else FontWeight.Normal
-            )
-            val layout = textMeasurer.measure(label, style)
+            val layout = labelLayouts.getOrNull(i) ?: continue
             drawText(
                 textLayoutResult = layout,
+                color = if (isDetected) color else Color.White.copy(alpha = 0.35f),
                 topLeft = Offset(nearX - layout.size.width / 2f, nearY + 8.dp.toPx())
             )
         }

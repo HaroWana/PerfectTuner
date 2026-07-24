@@ -41,6 +41,7 @@ fun PitchTrace(
     stringColors: List<Color>,
     inTuneColor: Color,
     neutralColor: Color,
+    tuningId: String,
     showToleranceMarkers: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -58,9 +59,13 @@ fun PitchTrace(
     val textMeasurer = rememberTextMeasurer()
     val axisLayouts = remember(textMeasurer) { AXIS_LABELS.map { (cents, text) -> cents to textMeasurer.measure(text, AXIS_LABEL_STYLE) } }
 
-    LaunchedEffect(Unit) {
+    // Keyed on the tuning: cents are measured against a different target after a
+    // tuning switch, so the pen must lift and the old trace must not connect
+    LaunchedEffect(tuningId) {
+        samples.clear()
         val penTracker = PenTracker()
         var prevFrameTimeMs = 0L
+        var wasInked = true
         while (isActive) {
             withInfiniteAnimationFrameMillis { frameTimeMs ->
                 if (prevFrameTimeMs != 0L && frameTimeMs - prevFrameTimeMs > FRAME_GAP_RESET_MS) {
@@ -81,7 +86,13 @@ fun PitchTrace(
                     samples.addLast(sample)
                 }
                 TraceGeometry.evictExpired(samples, frameTimeMs)
-                frameTick.longValue = frameTimeMs
+                // Only invalidate the canvas while there is ink to scroll (plus
+                // one final frame to erase it) — not forever on a silent screen
+                val hasInk = samples.any { it.cents != null }
+                if (hasInk || wasInked) {
+                    frameTick.longValue = frameTimeMs
+                }
+                wasInked = hasInk
                 prevFrameTimeMs = frameTimeMs
             }
         }
@@ -151,10 +162,15 @@ fun PitchTrace(
                 linePath.reset()
                 if (range.inTune) fillPath.reset()
                 // Midpoint quadratic smoothing: each segment curves through the
-                // midpoint using the previous point as control — no hard joints
+                // midpoint using the previous point as control — no hard joints.
+                // The fill starts at ownStart: the borrowed continuity point
+                // belongs to the previous (out-of-tune) run.
                 var first = true
                 var prevX = 0f
                 var prevY = 0f
+                var firstFill = true
+                var prevFillX = 0f
+                var prevFillY = 0f
                 for (i in range.start until range.endExclusive) {
                     val s = samples[i]
                     val cents = s.cents ?: continue
@@ -162,26 +178,36 @@ fun PitchTrace(
                     val y = TraceGeometry.timeToY(s.timeMs, nowMs, size.height, penY)
                     if (first) {
                         linePath.moveTo(x, y)
-                        if (range.inTune) fillPath.moveTo(x, y)
                         first = false
                     } else {
                         val midX = (prevX + x) / 2f
                         val midY = (prevY + y) / 2f
                         linePath.quadraticTo(prevX, prevY, midX, midY)
-                        if (range.inTune) fillPath.quadraticTo(prevX, prevY, midX, midY)
                     }
                     prevX = x
                     prevY = y
+                    if (range.inTune && i >= range.ownStart) {
+                        if (firstFill) {
+                            fillPath.moveTo(x, y)
+                            firstFill = false
+                        } else {
+                            val midX = (prevFillX + x) / 2f
+                            val midY = (prevFillY + y) / 2f
+                            fillPath.quadraticTo(prevFillX, prevFillY, midX, midY)
+                        }
+                        prevFillX = x
+                        prevFillY = y
+                    }
                 }
                 if (!first) {
                     linePath.lineTo(prevX, prevY)
-                    if (range.inTune) fillPath.lineTo(prevX, prevY)
                 }
 
-                if (range.inTune) {
+                if (range.inTune && !firstFill) {
                     // Soft fill between the in-tune trace and the center line
+                    fillPath.lineTo(prevFillX, prevFillY)
                     val yLast = TraceGeometry.timeToY(samples[range.endExclusive - 1].timeMs, nowMs, size.height, penY)
-                    val yFirst = TraceGeometry.timeToY(samples[range.start].timeMs, nowMs, size.height, penY)
+                    val yFirst = TraceGeometry.timeToY(samples[range.ownStart].timeMs, nowMs, size.height, penY)
                     fillPath.lineTo(centerX, yLast)
                     fillPath.lineTo(centerX, yFirst)
                     fillPath.close()

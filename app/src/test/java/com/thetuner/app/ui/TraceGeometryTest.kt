@@ -111,10 +111,21 @@ class TraceGeometryTest {
         assertEquals(
             listOf(
                 SegmentRange(0, 3, inTune = false, stringIndex = 0),
-                SegmentRange(2, 6, inTune = true, stringIndex = 0)
+                SegmentRange(2, 6, inTune = true, stringIndex = 0, ownStart = 3)
             ),
             TraceGeometry.segment(samples)
         )
+    }
+
+    @Test
+    fun `borrowed start is tracked separately via ownStart`() {
+        // The borrowed point belongs to the previous (out-of-tune) run: the
+        // line uses it for continuity, but the in-tune fill must not.
+        val samples = List(3) { sample(it.toLong(), inTune = false) } +
+            List(3) { sample(3L + it, inTune = true) }
+        val ranges = TraceGeometry.segment(samples)
+        assertEquals(2, ranges[1].start)
+        assertEquals(3, ranges[1].ownStart)
     }
 
     @Test
@@ -124,7 +135,7 @@ class TraceGeometryTest {
         assertEquals(
             listOf(
                 SegmentRange(0, 2, inTune = false, stringIndex = null),
-                SegmentRange(1, 6, inTune = false, stringIndex = 0)
+                SegmentRange(1, 6, inTune = false, stringIndex = 0, ownStart = 2)
             ),
             TraceGeometry.segment(samples)
         )

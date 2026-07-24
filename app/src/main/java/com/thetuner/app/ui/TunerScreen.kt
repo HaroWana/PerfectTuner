@@ -113,6 +113,7 @@ fun TunerScreen(
                 stringColors = StringColors.palette,
                 inTuneColor = StringColors.inTuneGreen,
                 neutralColor = StringColors.neutralColor,
+                tuningId = activeTuningId,
                 showToleranceMarkers = showToleranceMarkers,
                 modifier = Modifier
                     .fillMaxWidth()

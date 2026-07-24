@@ -11,7 +11,8 @@ data class SegmentRange(
     val start: Int, // overlaps previous run's last index when runs are contiguous
     val endExclusive: Int,
     val inTune: Boolean,
-    val stringIndex: Int?
+    val stringIndex: Int?,
+    val ownStart: Int = start // first index actually in the run (start may be borrowed)
 )
 
 /**
@@ -107,7 +108,7 @@ object TraceGeometry {
             // Borrow the previous drawable point so contiguous runs connect visually
             val start = if (i > 0 && samples[i - 1].cents != null) i - 1 else i
             if (j - start >= 2) {
-                ranges.add(SegmentRange(start, j, samples[i].inTune, samples[i].stringIndex))
+                ranges.add(SegmentRange(start, j, samples[i].inTune, samples[i].stringIndex, ownStart = i))
             }
             i = j
         }
