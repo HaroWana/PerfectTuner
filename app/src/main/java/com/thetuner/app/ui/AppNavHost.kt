@@ -1,21 +1,30 @@
 package com.thetuner.app.ui
 
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.flow.collectLatest
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
 @Composable
 fun AppNavHost(
@@ -24,7 +33,16 @@ fun AppNavHost(
 ) {
     val hasPurchased by viewModel.hasPurchased.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var pendingUnlockTuningId by remember { mutableStateOf<String?>(null) }
+    // Saveable: the Play purchase sheet triggers a stop/recreate cycle, and the
+    // promised auto-select must survive it
+    var pendingUnlockTuningId by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // Re-query purchases on every resume (Play Billing recommendation): covers
+    // purchases completed while the app was dead and failed initial setups
+    LifecycleResumeEffect(Unit) {
+        viewModel.restorePurchases()
+        onPauseOrDispose { }
+    }
 
     // Auto-select pending tuning once hasPurchased flips to true
     LaunchedEffect(hasPurchased) {
@@ -34,9 +52,16 @@ fun AppNavHost(
         }
     }
 
+    // A cancelled or failed purchase must drop the pending auto-select, or a
+    // later unrelated unlock (e.g. Restore Purchases) would switch tunings
+    LaunchedEffect(Unit) {
+        viewModel.purchaseCancelled.collectLatest { pendingUnlockTuningId = null }
+    }
+
     // Show toast on billing errors
     LaunchedEffect(Unit) {
         viewModel.billingError.collectLatest { message ->
+            pendingUnlockTuningId = null
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
     }
@@ -48,8 +73,10 @@ fun AppNavHost(
                 hasPurchased = hasPurchased,
                 onNavigateToSettings = { navController.navigate("settings") },
                 onLockedTuningTap = { tuningId ->
-                    pendingUnlockTuningId = tuningId
-                    viewModel.launchPurchase(context as Activity)
+                    context.findActivity()?.let { activity ->
+                        pendingUnlockTuningId = tuningId
+                        viewModel.launchPurchase(activity)
+                    }
                 }
             )
         }

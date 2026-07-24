@@ -47,6 +47,8 @@ class TunerViewModel @Inject constructor(
 
     val billingError: SharedFlow<String> = billingRepository.billingError
 
+    val purchaseCancelled: SharedFlow<Unit> = billingRepository.purchaseCancelled
+
     fun launchPurchase(activity: Activity) {
         viewModelScope.launch {
             billingRepository.launchPurchase(activity)

@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -49,16 +48,24 @@ class BillingRepository @Inject constructor(
     private val _billingError = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val billingError: SharedFlow<String> = _billingError.asSharedFlow()
 
+    // No banner on cancel (silent per UX decision), but the UI must still know
+    // to drop any pending "auto-select after unlock" state
+    private val _purchaseCancelled = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val purchaseCancelled: SharedFlow<Unit> = _purchaseCancelled.asSharedFlow()
+
     init {
         connect()
     }
 
     private fun connect() {
+        if (billingClient.connectionState == BillingClient.ConnectionState.CONNECTING) return
         billingClient.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(result: BillingResult) {
                 if (result.responseCode == BillingResponseCode.OK) {
                     queryPurchases()
                 }
+                // Non-OK setup (transient Play outage) is retried by the next
+                // queryPurchases() call — the app re-queries on every resume
             }
             override fun onBillingServiceDisconnected() {
                 // No-op — enableAutoServiceReconnection() handles retries automatically
@@ -67,34 +74,41 @@ class BillingRepository @Inject constructor(
     }
 
     fun queryPurchases() {
+        if (!billingClient.isReady) {
+            connect() // queries again from onBillingSetupFinished on success
+            return
+        }
         billingClient.queryPurchasesAsync(
             QueryPurchasesParams.newBuilder()
                 .setProductType(ProductType.INAPP)
                 .build()
         ) { result, purchases ->
             if (result.responseCode == BillingResponseCode.OK) {
-                _hasPurchased.value = purchases.any { purchase ->
+                val owned = purchases.filter { purchase ->
                     purchase.products.contains(PRODUCT_ID) &&
-                    purchase.purchaseState == Purchase.PurchaseState.PURCHASED
+                        purchase.purchaseState == Purchase.PurchaseState.PURCHASED
                 }
+                _hasPurchased.value = owned.isNotEmpty()
+                // Acknowledge restored/recovered purchases too: Play refunds
+                // any purchase left unacknowledged for 3 days
+                owned.forEach { handlePurchase(it) }
             }
         }
     }
 
     fun handlePurchase(purchase: Purchase) {
-        if (purchase.purchaseState == Purchase.PurchaseState.PURCHASED) {
-            if (!purchase.isAcknowledged) {
-                val params = AcknowledgePurchaseParams.newBuilder()
-                    .setPurchaseToken(purchase.purchaseToken)
-                    .build()
-                billingClient.acknowledgePurchase(params) { result ->
-                    if (result.responseCode == BillingResponseCode.OK) {
-                        _hasPurchased.value = true
-                    }
-                }
-            } else {
-                _hasPurchased.value = true
-            }
+        if (purchase.purchaseState != Purchase.PurchaseState.PURCHASED) return
+        if (!purchase.products.contains(PRODUCT_ID)) return
+
+        // Grant immediately — the user has paid. A failed acknowledgement is
+        // retried by every subsequent queryPurchases() until it sticks.
+        _hasPurchased.value = true
+
+        if (!purchase.isAcknowledged) {
+            val params = AcknowledgePurchaseParams.newBuilder()
+                .setPurchaseToken(purchase.purchaseToken)
+                .build()
+            billingClient.acknowledgePurchase(params) { /* retried via queryPurchases */ }
         }
     }
 
@@ -104,7 +118,7 @@ class BillingRepository @Inject constructor(
                 purchases?.forEach { handlePurchase(it) }
             }
             BillingResponseCode.USER_CANCELED -> {
-                // Silent dismiss per UX decision
+                _purchaseCancelled.tryEmit(Unit)
             }
             BillingResponseCode.ITEM_ALREADY_OWNED -> {
                 // Already purchased — refresh state
