@@ -18,6 +18,18 @@ android {
         versionName = "0.1.0"
     }
 
+    buildTypes {
+        release {
+            // Shrinking stays off until a release QA pass; the rules file is
+            // wired so enabling it is a one-flag change
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+
     buildFeatures {
         compose = true
     }

@@ -5,6 +5,7 @@
 
     <application
         android:name=".PerfectTunerApp"
+        android:icon="@mipmap/ic_launcher"
         android:label="PerfectTuner"
         android:supportsRtl="true"
         android:theme="@style/Theme.PerfectTuner">
