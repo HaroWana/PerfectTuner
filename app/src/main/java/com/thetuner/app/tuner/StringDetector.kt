@@ -8,13 +8,25 @@ class StringDetector {
     private var candidateIndex: Int? = null
     private var candidateCount: Int = 0
 
+    private companion object {
+        // LOCK_RADIUS_CENTS must stay above TunerEngine.CONTINUITY_CENTS (150c):
+        // pitches the engine accepts as continuous should still map to a string.
+        const val LOCK_RADIUS_CENTS = 200f
+        const val HYSTERESIS_FRAMES = 3
+    }
+
     /**
      * Detects which guitar string the given frequency is closest to.
-     * Uses 3-frame hysteresis before switching to a new string.
+     *
+     * Switching to a new string requires [HYSTERESIS_FRAMES] consecutive frames
+     * on that string. Once locked, the lock is held even while the pitch drifts
+     * out of range (re-lock hold) — only [reset] or a confirmed switch changes it.
+     * For tunings with unison strings the lowest matching index wins; pitch alone
+     * cannot tell unison courses apart.
      *
      * @param detectedFrequency The detected pitch frequency in Hz.
      * @param tuningFrequencies The target frequencies for each string.
-     * @return The string index, or null if no string is close enough or hysteresis not yet met.
+     * @return The locked string index, or null before the first lock is confirmed.
      */
     fun detect(detectedFrequency: Float, tuningFrequencies: List<Float>): Int? {
         // Find closest string by cent distance
@@ -29,8 +41,11 @@ class StringDetector {
             }
         }
 
-        // Reject if more than 200 cents from any string
-        if (minCents > 200f) {
+        // Out of range of every string: hold the current lock, but clear any
+        // pending switch — hysteresis counts consecutive frames only
+        if (minCents > LOCK_RADIUS_CENTS) {
+            candidateIndex = null
+            candidateCount = 0
             return currentStringIndex
         }
 
@@ -41,7 +56,7 @@ class StringDetector {
             return currentStringIndex
         }
 
-        // Apply 3-frame hysteresis for string switching
+        // Apply hysteresis for string switching
         if (closestIndex == candidateIndex) {
             candidateCount++
         } else {
@@ -49,7 +64,7 @@ class StringDetector {
             candidateCount = 1
         }
 
-        if (candidateCount >= 3) {
+        if (candidateCount >= HYSTERESIS_FRAMES) {
             currentStringIndex = candidateIndex
             candidateIndex = null
             candidateCount = 0

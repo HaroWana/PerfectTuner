@@ -118,7 +118,33 @@ class StringDetectorTest {
         assertEquals(0, result)
     }
 
+    @Test
+    fun `out-of-range frames reset the switch candidate counter`() {
+        // Hysteresis means 3 CONSECUTIVE frames: a switch interleaved with
+        // far-out-of-range noise must not accumulate toward confirmation.
+        detector.detect(frequencies[0], frequencies)
+        detector.detect(frequencies[0], frequencies)
+        detector.detect(frequencies[0], frequencies) // locked on 0
+
+        detector.detect(frequencies[1], frequencies) // candidate=1, count=1
+        detector.detect(50f, frequencies) // far noise -- must clear the candidate
+        detector.detect(frequencies[1], frequencies) // candidate=1, count=1 again
+        val result = detector.detect(frequencies[1], frequencies) // count=2, no switch yet
+        assertEquals(0, result)
+    }
+
     // --- Out of range ---
+
+    @Test
+    fun `locked string is held while the pitch drifts out of range`() {
+        // Intentional (re-lock hold): losing the pitch briefly must not drop
+        // the lock; only reset() or a confirmed switch changes it.
+        detector.detect(frequencies[0], frequencies)
+        detector.detect(frequencies[0], frequencies)
+        detector.detect(frequencies[0], frequencies) // locked on 0
+
+        assertEquals(0, detector.detect(50f, frequencies))
+    }
 
     @Test
     fun `detect returns null when pitch is more than 200 cents from all strings`() {
