@@ -28,9 +28,6 @@ class TunerEngineTest {
         override fun frames(): Flow<FloatArray> = flow {
             for (amplitude in amplitudes) emit(FloatArray(1024) { amplitude })
         }
-
-        override fun start() {}
-        override fun stop() {}
     }
 
     private class ScriptedPitchDetector(private val results: List<PitchResult>) : PitchDetector {

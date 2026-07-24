@@ -23,11 +23,9 @@ abstract class AudioModule {
         @Provides
         @Singleton
         fun providePitchDetector(): PitchDetector {
-            return YinPitchDetector(
-                sampleRate = 44100,
-                threshold = 0.15f,
-                bufferSize = 4096
-            )
+            // Defaults come from AudioConfig — the detector must analyze at the
+            // same rate and frame size AudioRecordSource captures with.
+            return YinPitchDetector()
         }
     }
 }
