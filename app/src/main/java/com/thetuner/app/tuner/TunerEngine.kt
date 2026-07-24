@@ -2,6 +2,7 @@ package com.thetuner.app.tuner
 
 import com.thetuner.app.audio.AudioSource
 import com.thetuner.app.detection.PitchDetector
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -10,7 +11,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
@@ -29,6 +32,8 @@ class TunerEngine @Inject constructor(
     private var listeningJob: Job? = null
     private var scope: CoroutineScope? = null
 
+    // Pitch-tracking state below is owned by the processing coroutine
+    // (Dispatchers.Default) and must only be mutated there — see resetRequested.
     private val medianWindow = FloatArray(3)
     private var medianCount = 0
     private var silenceCounter = 0
@@ -44,27 +49,29 @@ class TunerEngine @Inject constructor(
     @Volatile private var activeTuning: GuitarTuning = STANDARD_TUNING
     @Volatile private var a4Reference: Float = 440f
 
+    // setTuning cannot reset the tracking fields directly (it runs on the main
+    // thread with no happens-before edge to the processing coroutine); it sets
+    // this flag and processFrame performs the reset on its own thread.
+    private val resetRequested = AtomicBoolean(false)
+
     private companion object {
+        // One audio frame is 4096 samples at 44.1 kHz ≈ 93 ms
         const val SILENCE_DBFS_THRESHOLD = -70f
         const val CONTINUITY_CENTS = 150f
-        const val JUMP_CONFIRM_FRAMES = 3
-        const val SILENCE_FRAME_COUNT = 15
+        const val JUMP_CONFIRM_FRAMES = 3 // ~280 ms to confirm a real pitch jump
+        const val SILENCE_FRAME_COUNT = 15 // ~1.4 s of gated frames before showing silence
         const val IN_TUNE_TOLERANCE = 5.0f
         const val EMA_ALPHA = 0.2f
     }
 
     fun setTuning(tuning: GuitarTuning) {
+        // Redundant calls (DataStore re-emits on every unrelated settings write)
+        // must not wipe the string lock mid-tune
+        if (tuning.id == activeTuning.id) return
         activeTuning = tuning
-        // Reset hysteresis — stale state from old tuning causes wrong initial detection
-        stringDetector.reset()
-        smoothedCents = 0f
-        lastTargetFreq = 0f
-        lastAcceptedFreq = 0f
-        pendingJumpFreq = 0f
-        pendingJumpCount = 0
-        medianCount = 0
+        resetRequested.set(true)
         // Update state immediately so UI reflects change even during silence
-        _state.value = _state.value.copy(activeTuningId = tuning.id)
+        _state.update { it.copy(activeTuningId = tuning.id) }
     }
 
     fun setA4Reference(hz: Float) {
@@ -74,19 +81,13 @@ class TunerEngine @Inject constructor(
     fun startListening() {
         if (listeningJob?.isActive == true) return
 
-        medianCount = 0
-        silenceCounter = 0
-        smoothedCents = 0f
-        lastTargetFreq = 0f
-        lastAcceptedFreq = 0f
-        pendingJumpFreq = 0f
-        pendingJumpCount = 0
-        stringDetector.reset()
-
         val newScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scope = newScope
 
         listeningJob = newScope.launch {
+            resetPitchTracking()
+            silenceCounter = 0
+            resetRequested.set(false) // superseded by the full reset above
             _state.value = TunerState(
                 isListening = true,
                 isSilent = true,
@@ -96,8 +97,14 @@ class TunerEngine @Inject constructor(
                 audioSource.frames().collect { frame ->
                     processFrame(frame)
                 }
+            } catch (e: CancellationException) {
+                throw e // stop/restart must not overwrite the state written by stopListening
             } catch (e: Exception) {
-                _state.value = TunerState(isListening = false, isSilent = true)
+                _state.value = TunerState(
+                    isListening = false,
+                    isSilent = true,
+                    activeTuningId = activeTuning.id
+                )
             }
         }
     }
@@ -107,14 +114,6 @@ class TunerEngine @Inject constructor(
         listeningJob = null
         scope?.cancel()
         scope = null
-        medianCount = 0
-        silenceCounter = 0
-        smoothedCents = 0f
-        lastTargetFreq = 0f
-        lastAcceptedFreq = 0f
-        pendingJumpFreq = 0f
-        pendingJumpCount = 0
-        stringDetector.reset()
         _state.value = TunerState(
             isListening = false,
             isSilent = true,
@@ -122,7 +121,21 @@ class TunerEngine @Inject constructor(
         )
     }
 
+    private fun resetPitchTracking() {
+        smoothedCents = 0f
+        lastTargetFreq = 0f
+        lastAcceptedFreq = 0f
+        pendingJumpFreq = 0f
+        pendingJumpCount = 0
+        medianCount = 0
+        stringDetector.reset()
+    }
+
     private fun processFrame(frame: FloatArray) {
+        if (resetRequested.compareAndSet(true, false)) {
+            resetPitchTracking()
+        }
+
         // Capture volatile fields once per frame to avoid races within the frame
         val currentTuning = activeTuning
         val currentA4 = a4Reference
@@ -234,13 +247,7 @@ class TunerEngine @Inject constructor(
             isSilent = true,
             activeTuningId = activeTuning.id
         )
-        medianCount = 0
-        smoothedCents = 0f
-        lastTargetFreq = 0f
-        lastAcceptedFreq = 0f
-        pendingJumpFreq = 0f
-        pendingJumpCount = 0
-        stringDetector.reset()
+        resetPitchTracking()
     }
 
     private fun addToMedianFilter(frequency: Float): Float {

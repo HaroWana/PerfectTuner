@@ -3,7 +3,9 @@ package com.thetuner.app.tuner
 import com.thetuner.app.audio.AudioSource
 import com.thetuner.app.detection.PitchDetector
 import com.thetuner.app.detection.PitchResult
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
@@ -155,8 +157,8 @@ class TunerEngineTest {
 
     @Test
     fun `brief detection dropouts do not read as silence`() {
-        // 5 tracked frames, then 12 sub-gate frames (~0.28 s at the audio frame
-        // rate): a brief dropout in a decaying note must not declare silence.
+        // 5 tracked frames, then 12 sub-gate frames (~1.1 s at the ~93 ms audio
+        // frame cadence): a dropout in a decaying note must not declare silence.
         val marker = shiftByCents(e2, 0.02f)
         val frequencies = List(4) { e2 } + marker
         val amplitudes = List(5) { 0.1f } + List(12) { 0.0001f } // -80 dBFS, below the gate
@@ -169,6 +171,54 @@ class TunerEngineTest {
         }
 
         assertNull("12 gated frames must not flip the state to silent", silentState)
+    }
+
+    /** Audio source the test drives frame by frame, so engine calls can be interleaved deterministically. */
+    private class ChannelAudioSource : AudioSource {
+        val channel = Channel<FloatArray>(Channel.UNLIMITED)
+        override fun frames(): Flow<FloatArray> = channel.consumeAsFlow()
+        fun sendFrame() {
+            channel.trySend(FloatArray(1024) { 0.1f })
+        }
+    }
+
+    @Test
+    fun `setTuning with the same tuning does not reset the string lock`() = runBlocking {
+        // Every DataStore edit re-emits the active tuning id; a redundant
+        // setTuning call must not wipe the string lock mid-tune.
+        val marker = shiftByCents(e2, 0.01f)
+        val audio = ChannelAudioSource()
+        val engine = TunerEngine(audio, scripted(listOf(e2, e2, e2, marker)))
+
+        engine.startListening()
+        repeat(3) { audio.sendFrame() }
+        withTimeout(5_000) { engine.state.first { it.detectedStringIndex == 0 } }
+
+        engine.setTuning(STANDARD_TUNING) // same tuning as the active one
+        audio.sendFrame()
+        val state = withTimeout(5_000) { engine.state.first { it.frequencyHz == marker } }
+        engine.stopListening()
+
+        assertEquals("string lock must survive a redundant setTuning", 0, state.detectedStringIndex)
+    }
+
+    @Test
+    fun `setTuning with a different tuning resets the string lock`() = runBlocking {
+        val marker = shiftByCents(e2, 0.01f)
+        val audio = ChannelAudioSource()
+        val engine = TunerEngine(audio, scripted(listOf(e2, e2, e2, marker)))
+
+        engine.startListening()
+        repeat(3) { audio.sendFrame() }
+        withTimeout(5_000) { engine.state.first { it.detectedStringIndex == 0 } }
+
+        engine.setTuning(TuningLibrary.findById("drop_d"))
+        audio.sendFrame()
+        val state = withTimeout(5_000) { engine.state.first { it.frequencyHz == marker } }
+        engine.stopListening()
+
+        assertEquals("drop_d", state.activeTuningId)
+        assertNull("hysteresis must restart against the new tuning", state.detectedStringIndex)
     }
 
     @Test
