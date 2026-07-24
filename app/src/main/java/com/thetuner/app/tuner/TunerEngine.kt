@@ -188,8 +188,9 @@ class TunerEngine @Inject constructor(
 
         val filteredFreq = addToMedianFilter(result.frequencyHz)
 
-        // NoteMapper always uses dynamic A4 reference
-        val note = NoteMapper.frequencyToNote(filteredFreq, currentA4)
+        // NoteMapper always uses dynamic A4 reference; flat-named tunings
+        // (Eb Standard, ...) display flats so the readout matches the string chips
+        val note = NoteMapper.frequencyToNote(filteredFreq, currentA4, currentTuning.usesFlats)
 
         // Chromatic mode: run string detection against Standard tuning for the visual overlay.
         // The note/cents display uses chromatic (NoteMapper already found nearest semitone).

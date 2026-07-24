@@ -35,6 +35,27 @@ class NoteMapperTest {
     }
 
     @Test
+    fun `flat spelling is used when requested`() {
+        // Eb2 = 77.78 Hz: flat-named tunings must show "Eb", not "D#"
+        val note = NoteMapper.frequencyToNote(77.78f, useFlats = true)
+        assertEquals("Eb", note.name)
+        assertEquals(2, note.octave)
+    }
+
+    @Test
+    fun `natural notes are unaffected by flat spelling`() {
+        val note = NoteMapper.frequencyToNote(440.0f, useFlats = true)
+        assertEquals("A", note.name)
+    }
+
+    @Test
+    fun `flat-named tunings report usesFlats`() {
+        assertEquals(true, TuningLibrary.findById("eb_standard").usesFlats)
+        assertEquals(false, STANDARD_TUNING.usesFlats)
+        assertEquals(false, TuningLibrary.CHROMATIC_MODE.usesFlats)
+    }
+
+    @Test
     fun `cents between 441 and 440 is positive (sharp)`() {
         val cents = NoteMapper.centsBetween(441.0f, 440.0f)
         assertEquals(3.93f, cents, 0.1f)

@@ -15,6 +15,10 @@ data class GuitarTuning(
     val strings: List<GuitarString>,
     val description: String = ""
 ) {
+    /** Flat-named tunings (Eb Standard, ...) should display flats, not sharps. */
+    val usesFlats: Boolean
+        get() = strings.any { it.noteName.endsWith("b") }
+
     fun frequencies(a4Reference: Float = 440f): List<Float> {
         return strings.map { string ->
             a4Reference * 2f.pow((string.midiNumber - 69) / 12f)

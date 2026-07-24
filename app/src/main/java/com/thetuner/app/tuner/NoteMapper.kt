@@ -6,7 +6,8 @@ import kotlin.math.roundToInt
 
 object NoteMapper {
 
-    private val NOTE_NAMES = arrayOf("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+    private val SHARP_NOTE_NAMES = arrayOf("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+    private val FLAT_NOTE_NAMES = arrayOf("C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B")
     private const val A4_FREQUENCY = 440.0f
     private const val A4_MIDI = 69
 
@@ -17,12 +18,17 @@ object NoteMapper {
         val frequency: Float // exact frequency for this MIDI note at the given A4 reference
     )
 
-    fun frequencyToNote(frequencyHz: Float, a4Reference: Float = A4_FREQUENCY): Note {
+    fun frequencyToNote(
+        frequencyHz: Float,
+        a4Reference: Float = A4_FREQUENCY,
+        useFlats: Boolean = false
+    ): Note {
         // MIDI number from frequency: 69 + 12 * log2(freq / A4)
         val midiFloat = A4_MIDI + 12.0 * ln(frequencyHz / a4Reference.toDouble()) / ln(2.0)
         val midiNumber = midiFloat.roundToInt()
 
-        val noteName = NOTE_NAMES[((midiNumber % 12) + 12) % 12]
+        val names = if (useFlats) FLAT_NOTE_NAMES else SHARP_NOTE_NAMES
+        val noteName = names[((midiNumber % 12) + 12) % 12]
         val octave = (midiNumber / 12) - 1 // MIDI octave convention
 
         // Exact frequency for this MIDI note
