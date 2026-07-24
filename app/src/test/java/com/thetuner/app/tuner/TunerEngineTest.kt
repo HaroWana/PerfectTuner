@@ -31,9 +31,6 @@ class TunerEngineTest {
     }
 
     private class ScriptedPitchDetector(private val results: List<PitchResult>) : PitchDetector {
-        constructor(frequencies: List<Float>, confidence: Float = 0.95f) :
-            this(frequencies.map { PitchResult(frequencyHz = it, confidence = confidence) })
-
         private var index = 0
         override fun detect(samples: FloatArray): PitchResult? {
             val result = results[index.coerceAtMost(results.size - 1)]
@@ -56,8 +53,11 @@ class TunerEngineTest {
         }
     }
 
+    private fun scripted(frequencies: List<Float>) =
+        ScriptedPitchDetector(frequencies.map { PitchResult(frequencyHz = it) })
+
     private fun engineFor(frequencies: List<Float>, amplitude: Float = 0.1f): TunerEngine =
-        TunerEngine(FakeAudioSource(frequencies.size, amplitude), ScriptedPitchDetector(frequencies))
+        TunerEngine(FakeAudioSource(frequencies.size, amplitude), scripted(frequencies))
 
     private val e2 = 440f * 2f.pow((40 - 69) / 12f) // 82.407 Hz, string 6 in Standard
 
@@ -110,12 +110,12 @@ class TunerEngineTest {
     @Test
     fun `octave-error burst does not drag the cents offset`() {
         // YIN subharmonic error observed on device: while tracking E2, 1-2 frame
-        // bursts of f/2 at ~0.89 confidence. They must be rejected as detection
-        // noise, not fed to the EMA (which would slam the display toward -1200c).
+        // bursts of f/2. They must be rejected as detection noise, not fed to
+        // the EMA (which would slam the display toward -1200c).
         val marker = shiftByCents(e2, 0.01f)
-        val script = List(6) { PitchResult(e2, 0.95f) } +
-            List(2) { PitchResult(e2 / 2f, 0.89f) } +
-            PitchResult(marker, 0.95f)
+        val script = List(6) { PitchResult(e2) } +
+            List(2) { PitchResult(e2 / 2f) } +
+            PitchResult(marker)
         val engine = TunerEngine(FakeAudioSource(script.size), ScriptedPitchDetector(script))
 
         engine.startListening()
@@ -136,9 +136,9 @@ class TunerEngineTest {
         // pitch the engine must follow it (unlike 1-2 frame error bursts).
         val a2 = 110f
         val marker = shiftByCents(a2, 0.01f)
-        val script = List(6) { PitchResult(e2, 0.95f) } +
-            List(8) { PitchResult(a2, 0.95f) } +
-            PitchResult(marker, 0.95f)
+        val script = List(6) { PitchResult(e2) } +
+            List(8) { PitchResult(a2) } +
+            PitchResult(marker)
         val engine = TunerEngine(FakeAudioSource(script.size), ScriptedPitchDetector(script))
 
         engine.startListening()
@@ -160,7 +160,7 @@ class TunerEngineTest {
         val marker = shiftByCents(e2, 0.02f)
         val frequencies = List(4) { e2 } + marker
         val amplitudes = List(5) { 0.1f } + List(12) { 0.0001f } // -80 dBFS, below the gate
-        val engine = TunerEngine(FakeAudioSource(amplitudes), ScriptedPitchDetector(frequencies))
+        val engine = TunerEngine(FakeAudioSource(amplitudes), scripted(frequencies))
 
         engine.startListening()
         val silentState = runBlocking {

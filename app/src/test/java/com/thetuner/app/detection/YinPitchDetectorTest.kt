@@ -3,8 +3,8 @@ package com.thetuner.app.detection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Random
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -52,15 +52,25 @@ class YinPitchDetectorTest {
     }
 
     @Test
-    fun `returns null or low confidence for low amplitude noise`() {
-        val noise = FloatArray(bufferSize) { (Math.random() * 0.001).toFloat() }
+    fun `returns null for low amplitude noise`() {
+        // Seeded zero-mean noise: aperiodic, so no CMND dip below the threshold
+        val rng = Random(42)
+        val noise = FloatArray(bufferSize) { (rng.nextFloat() - 0.5f) * 0.002f }
         val result = detector.detect(noise)
-        // Either null (no pitch detected) or very low confidence
-        if (result != null) {
-            assertTrue(
-                "Noise should have low confidence, got ${result.confidence}",
-                result.confidence < 0.5f
-            )
-        }
+        assertNull("Should return null for aperiodic noise", result)
+    }
+
+    @Test
+    fun `returns null for constant DC buffer`() {
+        val dc = FloatArray(bufferSize) { 0.5f }
+        val result = detector.detect(dc)
+        assertNull("Should return null for a constant (pitchless) signal", result)
+    }
+
+    @Test
+    fun `returns null when buffer is shorter than analysis size`() {
+        val short = generateSineWave(440.0, samples = bufferSize - 1)
+        val result = detector.detect(short)
+        assertNull("Should return null for undersized buffers", result)
     }
 }

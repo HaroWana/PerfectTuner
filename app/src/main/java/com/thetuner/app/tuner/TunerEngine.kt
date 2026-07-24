@@ -46,7 +46,6 @@ class TunerEngine @Inject constructor(
 
     private companion object {
         const val SILENCE_DBFS_THRESHOLD = -70f
-        const val CONFIDENCE_THRESHOLD = 0.70f
         const val CONTINUITY_CENTS = 150f
         const val JUMP_CONFIRM_FRAMES = 3
         const val SILENCE_FRAME_COUNT = 15
@@ -137,17 +136,17 @@ class TunerEngine @Inject constructor(
         }
 
         val result = pitchDetector.detect(frame)
-        if (result == null || result.confidence < CONFIDENCE_THRESHOLD) {
+        if (result == null) {
             silenceCounter++
             if (silenceCounter >= SILENCE_FRAME_COUNT) emitSilence()
             return
         }
 
-        // Jump confirmation: YIN subharmonic errors (f/2 at 0.87-0.92 confidence,
-        // observed on device) arrive in 1-2 frame bursts and would drag the EMA
-        // toward -1200c. Any pitch jump beyond CONTINUITY_CENTS — at any
-        // confidence — must sustain for JUMP_CONFIRM_FRAMES consecutive frames
-        // before it is followed; real note changes pass in ~70 ms.
+        // Jump confirmation: YIN subharmonic errors (f/2 bursts observed on
+        // device) arrive in 1-2 frame bursts and would drag the EMA toward
+        // -1200c. Any pitch jump beyond CONTINUITY_CENTS must sustain for
+        // JUMP_CONFIRM_FRAMES consecutive frames before it is followed; real
+        // note changes pass in ~280 ms at the ~93 ms audio frame cadence.
         val freq = result.frequencyHz
         if (lastAcceptedFreq > 0f &&
             abs(NoteMapper.centsBetween(freq, lastAcceptedFreq)) > CONTINUITY_CENTS

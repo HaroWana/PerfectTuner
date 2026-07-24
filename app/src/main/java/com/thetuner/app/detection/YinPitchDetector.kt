@@ -27,17 +27,12 @@ class YinPitchDetector(
         val betterTau = parabolicInterpolation(tau)
 
         // Step 5: Convert to frequency
-        val frequency = sampleRate.toFloat() / betterTau
-        val confidence = 1.0f - yinBuffer[tau]
-
-        return PitchResult(
-            frequencyHz = frequency,
-            confidence = confidence
-        )
+        return PitchResult(frequencyHz = sampleRate.toFloat() / betterTau)
     }
 
     private fun difference(buffer: FloatArray) {
-        for (tau in 0 until halfBuffer) {
+        // tau=0 is skipped: cumulativeMeanNormalizedDifference overwrites it
+        for (tau in 1 until halfBuffer) {
             yinBuffer[tau] = 0f
             for (i in 0 until halfBuffer) {
                 val delta = buffer[i] - buffer[i + tau]
@@ -51,7 +46,9 @@ class YinPitchDetector(
         var runningSum = 0f
         for (tau in 1 until halfBuffer) {
             runningSum += yinBuffer[tau]
-            yinBuffer[tau] = yinBuffer[tau] * tau / runningSum
+            // Silence/DC input: all differences are zero — force CMND to 1 so no
+            // tau passes the threshold (instead of relying on NaN comparisons)
+            yinBuffer[tau] = if (runningSum == 0f) 1f else yinBuffer[tau] * tau / runningSum
         }
     }
 
